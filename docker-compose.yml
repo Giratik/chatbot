@@ -1,0 +1,114 @@
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chatbot-backend
+    #volumes:
+      #- ./backend:/app
+      #- ./chroma_db:/app/chroma_db  # Pour stocker la base de données Chroma de manière persistante
+     # - ./_rag_base:/app/_rag_base  # Pour stocker les CSV et autres ressources du RAG
+     # (Tu peux aussi faire du bind mount sur des dossiers spécifiques à l'intérieur du conteneur si tu préfères)
+    ports:
+      - "8000:8000"
+    environment:
+      # L'IP de ta machine hôte vue depuis Docker pour contacter Ollama
+      - OLLAMA_HOST=http://10.75.12.5:11434 
+      #- DEFAULT_LLM=mistral:latest
+      - CONTEXT_SIZE=12288
+      - TEMPERATURE=0.4
+      - DEFAULT_LLM=ministral-3:14b
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+          devices:
+              - driver: nvidia
+                count: 1
+                capabilities: [gpu]
+    #networks:
+    #  - monitoring
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chatbot-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      # Le frontend communique avec le backend via le nom du service Docker
+      - API_URL=http://backend:8000
+      - STREAMLIT_BROWSER_SERVER_ADDRESS=10.75.12.5
+      - CONTEXT_SIZE=12288
+      - TEMPERATURE=0.4
+      - DEFAULT_LLM=ministral-3:14b
+      - DEFAULT_VLM=ministral-3:14b
+      - PAYLOAD_DEBUG=show
+    depends_on:
+      - backend
+    #networks:
+    #  - monitoring
+
+#  prometheus:
+#    image: prom/prometheus:latest
+#    container_name: prometheus
+#    volumes:
+#      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+#    ports:
+#      - "9090:9090"
+#    networks:
+#      - monitoring
+#    depends_on:
+#      - backend
+#
+#  grafana:
+#    image: grafana/grafana:latest
+#    container_name: grafana
+#    ports:
+#      - "3000:3000"
+#    environment:
+#      - GF_SECURITY_ADMIN_PASSWORD=admin
+#    networks:
+#      - monitoring
+#    depends_on:
+#      - backend
+#
+#  node-exporter:
+#    image: prom/node-exporter:latest
+#    container_name: node-exporter
+#    volumes:
+#      - /proc:/host/proc:ro
+#      - /sys:/host/sys:ro
+#      - /:/rootfs:ro
+#    command:
+#      - '--path.procfs=/host/proc'
+#      - '--path.sysfs=/host/sys'
+#      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+#    networks:
+#      - monitoring
+#    depends_on:
+#      - backend
+#
+#  gpu-exporter:
+#    image: nvidia/dcgm-exporter:latest
+#    container_name: gpu-exporter
+#    environment:
+#      - NVIDIA_VISIBLE_DEVICES=all
+#    runtime: nvidia # Indispensable pour accéder au GPU
+#    ports:
+#      - "9400:9400"
+#    networks:
+#      - monitoring
+#    depends_on:
+#      - backend
+#
+#networks:
+#  monitoring:

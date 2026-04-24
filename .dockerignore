@@ -1,0 +1,34 @@
+# Ignorer l'environnement virtuel local
+chatb/
+venv/
+env/
+useless/
+sandbox/
+clean_code/
+code_avec_redis/
+mes_librairies/
+attack.py
+dd.txt
+donnees_test.xlsx
+original_requ.txt
+tool_call.py
+meh/
+
+# Ignorer les fichiers de cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+mes_images_app.tar
+
+# Ignorer les variables d'environnement locales (pour la sécurité)
+.env
+
+# Ignorer le dossier git s'il y en a un
+.git/
+
+backend/metrics.py
+_rag_base/
+
+chroma_db/
