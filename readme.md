@@ -24,3 +24,16 @@ on va utiliser ce modèle pour tous les types de queries : mistral-small3.2:24b.
 **Redis** a été mis en place, ça permet d'avoir une mémoire de la conversation basée sur un token de session id (actuellement désactivé).
 Il faut maintenant trouver comment en avoir 1/utilisateur => login (vérifier aussi comment la mémoire se comporte, idem pour le stockage)  
 Voir aussi comment on peut utiliser KV et la quantisation pour le modèle llm
+
+
+# checkpoint 24/04/2026
+
+le projet est stable
+les interrogations à se poser sont :
+- est-ce qu'on souhaite garder un nombre de token relativement faible mais adapté à une session de chat éphémère qui n'autoriserait pas l'analyse de fichier trop gros; ce qui permettrait d'avoir assez de mémoire à louer pour avoir des modèles en parallèles pour plusieurs utilisateurs
+- est-ce qu'on veut absolument traiter les gros fichiers mais ça rallonge le temps d'inférence, d'autant plus qu'on ne sait pas la limite des plus gros fichiers 
+
+Directions à prendre :
+- Intégrer de quoi traiter les fichiers words, powerpoint
+- Développer le rag pour permettre la vectorisation de doc pdf entre autres
+- discuter avec n'importe quel type de fichier, pas que excel
