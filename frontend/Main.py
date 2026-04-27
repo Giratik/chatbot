@@ -172,7 +172,7 @@ if user_input :
         }
         with st.sidebar:
             if PAYLOAD_DEBUG == "show" : st.subheader("🔍 Debug — Payload")
-            if PAYLOAD_DEBUG == "show" : st.json(messages_pour_api)
+            if PAYLOAD_DEBUG == "show" : st.json(payload)
             #if PAYLOAD_DEBUG == "show" : st.text(prompt)
             #if PAYLOAD_DEBUG == "show" : st.json(payload["messages"])
             #if PAYLOAD_DEBUG == "show" : st.json(payload["messages"]) # comment récupérer le dernier message du json ?

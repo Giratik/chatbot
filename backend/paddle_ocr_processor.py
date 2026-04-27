@@ -322,6 +322,7 @@ def extract_pdf_ocr_paddle(pdf_bytes):
     return text_content if text_content.strip() else None
 
 
+
 def extract_pdf_native(pdf_bytes):
     """
     Fallback: Extrait le texte natif avec pdfplumber.

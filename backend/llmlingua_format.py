@@ -1,5 +1,9 @@
 from llmlingua import PromptCompressor
 import re
+import tiktoken
+import os
+
+CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 
 compressor = PromptCompressor(
     model_name="microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank",
@@ -89,10 +93,23 @@ def process_for_llm(text, chunk_tokens=10000):
     print(f"Nombre de chunks : {len(chunks)}")
     return chunks
 
-
+def tronquer_au_contexte(texte: str, context_size: int, reserve_reponse: int = 2000) -> str:
+    enc = tiktoken.get_encoding("cl100k_base")  # approximation correcte pour Mistral/Llama
+    tokens = enc.encode(texte)
+    limite = context_size - reserve_reponse
+    
+    if len(tokens) <= limite:
+        return texte
+    
+    # Tronque en gardant début ET fin (plus informatifs que le milieu)
+    moitie = limite // 2
+    tokens_gardes = tokens[:moitie] + tokens[-moitie:]
+    d = enc.decode(tokens_gardes)
+    return 
 
 def token_saver(raw_text):
     cleaned_text = clean_ocr_text(raw_text)
+    
     result = compress_long_text(cleaned_text, rate=0.7)
 
     print(f"Tokens originaux : {result['origin_tokens']} → compressés : {result['compressed_tokens']} (ratio {result['ratio']})")
