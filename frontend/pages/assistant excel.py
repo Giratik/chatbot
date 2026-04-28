@@ -60,82 +60,83 @@ if st.sidebar.button("Nouvelle session", use_container_width=True):
 # === SECTION 1 : UPLOAD DU FICHIER ===
 uploaded_file = st.sidebar.file_uploader("Chargez un fichier CSV ou Excel", type=["csv", "xlsx"])
 
-if uploaded_file is not None:
+if uploaded_file:
     try:
-        # Lecture du fichier selon son extension
+        # --- Détection du changement de fichier ou d'onglet ---
+        file_id = uploaded_file.name + str(uploaded_file.size)
+        
+        if file_id != st.session_state.get("last_file_id"):
+            st.session_state.messages = []
+            st.session_state.knowledge_ready = False
+            st.session_state.last_file_id = file_id
+            st.sidebar.info("📂 Nouveau fichier chargé — conversation réinitialisée.")
+        
+        # --- Lecture du fichier ---
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
-        else:
-            # 1. On charge le fichier en tant qu'objet Excel (sans lire les données tout de suite)
-            xls = pd.ExcelFile(uploaded_file)
-            onglets = xls.sheet_names # Récupère la liste des noms de toutes les pages
-            
-            # 2. On affiche un menu déroulant dans la barre latérale pour choisir la page
-            # S'il n'y a qu'une seule page, le menu s'affiche quand même mais avec un seul choix
-            onglet_choisi = st.sidebar.selectbox("Choisissez l'onglet à analyser :", onglets)
-            file_id = uploaded_file.name + str(uploaded_file.size) + onglet_choisi
-
-            if file_id != st.session_state.get("last_file_id"):
-                st.session_state.messages = []
-                st.session_state.knowledge_ready = False  # ← important : force la ré-indexation
-                st.session_state.last_file_id = file_id
-            
-            # 3. On lit uniquement les données de la page sélectionnée
-            df = pd.read_excel(uploaded_file, sheet_name=onglet_choisi)
-        st.session_state.dataframe = df
-        st.info(f"Fichier {uploaded_file.name} correctement chargé")
         
-    except Exception as e:
-        st.error(f"Erreur de lecture : {e}")
-
-if st.session_state.dataframe is not None:
-    try:
-        df = st.session_state.dataframe
-        # PRÉ-TRAITEMENT ANTI-ACCENTS 
+        else:  # Excel
+            xls = pd.ExcelFile(uploaded_file)
+            onglet_choisi = st.sidebar.selectbox("📂 Choisissez l'onglet :", xls.sheet_names)
+            
+            # Envoi au backend
+            with st.spinner("⏳ Parsing Excel..."):
+                files = {"file": (uploaded_file.name, uploaded_file.getbuffer())}
+                params = {"sheet_name": onglet_choisi}
+                response = requests.post(f"{API_URL}/parse_excel", files=files, params=params)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "success":
+                        # Convertir JSON → DataFrame
+                        df = pd.DataFrame(data["tableau"])
+                        st.success(f"✅ {len(df)} lignes × {len(df.columns)} colonnes")
+                    else:
+                        st.error(f"❌ {data.get('message')}")
+                        st.stop()
+                else:
+                    st.error("❌ Erreur backend")
+                    st.stop()
+            
+            if df is None:
+                st.stop()
+        
+        # --- PRÉ-TRAITEMENT ---
         # Nettoyage des NOMS de colonnes
         df.columns = [enlever_accents(col) for col in df.columns]
-        ##
-        ### Nettoyage du CONTENU des colonnes textuelles (très rapide grâce à .str)
+        
+        # Nettoyage du CONTENU des colonnes textuelles
         colonnes_textes = df.select_dtypes(include=['object', 'string']).columns
         for col in colonnes_textes:
             df[col] = df[col].str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
-            
-        # ------------------------------------------------
         
         # Stockage du DataFrame dans la session
         st.session_state.dataframe = df
+        st.sidebar.success(f"✅ Fichier chargé : {df.shape[0]} lignes × {df.shape[1]} colonnes")
         
-        
-        # Envoi au backend pour le RAG (Uniquement si pas encore fait pour cette session)
+        # --- ENVOI AU BACKEND POUR RAG ---
         if not st.session_state.knowledge_ready:
             with st.sidebar.status("🔄 Indexation du fichier ...", expanded=True):
-                # Correction du format d'envoi du fichier via requests
                 csv_propre = df.to_csv(index=False).encode('utf-8')
                 files = {"file": (uploaded_file.name, csv_propre, "text/csv")}
                 data = {"session_id": st.session_state.session_id}
                 response = requests.post(f"{API_URL}/ajouter_au_savoir_csv", files=files, data=data)
                 
                 if response.status_code == 200:
-                    data = response.json() # On lit la vraie réponse du backend
-                    
-                    if data.get("statut") == "succès":
+                    response_data = response.json()
+                    if response_data.get("statut") == "succès":
                         st.session_state.knowledge_ready = True
                         st.write("✅ Indexation réussie !")
                     else:
-                        # Si le backend a envoyé un texte d'erreur, on l'affiche en rouge !
-                        st.error(f"❌ Erreur du backend : {data.get('erreur')}")
+                        st.error(f"❌ Erreur du backend : {response_data.get('erreur')}")
                 else:
                     st.error("❌ Erreur de connexion au serveur Backend.")
-
-        #st.sidebar.success("✅ Fichier chargé et prêt !")
         
+        # --- APERÇU DES DONNÉES ---
         with st.expander("📋 Aperçu des données", expanded=True):
-            #st.dataframe(df.head(10))
-            #st.write(df.dtypes)         # voir les types détectés
-            st.write(df.head(10))       # version texte brute, jamais de plantage
+            st.write(df.head(10))
             st.caption(f"📊 Dimensions : {df.shape[0]} lignes × {df.shape[1]} colonnes")
             
-            # Affichage des colonnes disponibles pour aider l'utilisateur
             with st.expander("📝 Colonnes disponibles", expanded=False):
                 colonnes_info = "\n".join([f"• **{col}** ({dtype})" for col, dtype in df.dtypes.items()])
                 st.markdown(colonnes_info)
@@ -143,6 +144,10 @@ if st.session_state.dataframe is not None:
     except Exception as e:
         st.sidebar.error(f"❌ Erreur : {e}")
         st.stop()
+
+else:
+    st.info("📌 Veuillez charger un fichier CSV ou Excel dans la barre latérale pour commencer.")
+    st.stop()
 
 
 # === SECTION 1.5 : CHOIX DU MODE (LES DEUX CERVEAUX) ===
