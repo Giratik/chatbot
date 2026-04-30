@@ -10,14 +10,12 @@ import unicodedata
 
 
 # --- CONFIGURATION ---
+LOGO_PATH = "ressource/Eau_de_Paris_bleu.svg.png"
 API_URL = os.environ.get("API_URL", "http://backend:8000")
 DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "ministral-3:14b")
 
-selected_context_size = 12288
+selected_context_size = 16384
 selected_temperature = 0.4
-
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
 
 # --- FONCTIONS DE SESSION ---
 def new_session():
@@ -48,13 +46,15 @@ def enlever_accents(texte):
 st.set_page_config(page_title="Assistant Data & Graphiques", page_icon="📊", layout="wide")
 st.title("📊 Assistant Data & Graphiques")
 
+if os.path.exists(LOGO_PATH):
+    st.logo(LOGO_PATH) 
 
 # Initialisation de la session
 if "session_id" not in st.session_state:
     new_session()
 
 # Bouton pour réinitialiser
-if st.sidebar.button("Nouvelle session", width='stretch'):
+if st.sidebar.button("Nouvelle session", use_container_width=True):
     reset_and_rerun()
 
 # === SECTION 1 : UPLOAD DU FICHIER ===
@@ -69,7 +69,7 @@ if uploaded_file:
             st.session_state.messages = []
             st.session_state.knowledge_ready = False
             st.session_state.last_file_id = file_id
-            st.sidebar.info("📂 Nouveau fichier chargé.")
+            st.sidebar.info("📂 Nouveau fichier chargé — conversation réinitialisée.")
         
         # --- Lecture du fichier ---
         if uploaded_file.name.endswith('.csv'):
@@ -83,104 +83,73 @@ if uploaded_file:
             with st.spinner("⏳ Parsing Excel..."):
                 files = {"file": (uploaded_file.name, uploaded_file.getbuffer())}
                 params = {"sheet_name": onglet_choisi}
-                response = requests.post(f"{API_URL}/parse_every_tab_excel", files=files, params=params)
-                data=response.json()
-                #with st.sidebar:
-                #    data=response.json()
-                #    st.json(data)
-#                
+                response = requests.post(f"{API_URL}/parse_excel", files=files, params=params)
+                
                 if response.status_code == 200:
-                    # On suppose que 'data' est = response.json()
-                    # Utilisation de simples quotes pour éviter l'erreur de syntaxe dans le f-string
-                    liste_tableaux = data.get("tableau", [])
-                    
-                    st.success(f"{len(liste_tableaux)} tableau(x) détecté(s).")
-                    
-                    # On stocke uniquement la liste des tableaux dans la session
-                    st.session_state.tableaux_extraits = liste_tableaux
-                    
-                    # On boucle sur la liste de dictionnaires
-                    for i, table_dict in enumerate(st.session_state.tableaux_extraits):
-                        
-                        # Extraction depuis les clés du dictionnaire JSON
-                        title = table_dict.get("titre")
-                        table_data = table_dict.get("donnees")
-                        
-                        with st.expander(f"Tableau n°{i+1} : {title if title else 'Sans titre'}", expanded=True):
-                            # Création du DataFrame (Ligne 0 = Headers)
-                            df = pd.DataFrame(table_data[1:], columns=table_data[0])
-                            st.dataframe(df, width='stretch')
-                            
-                            # Option export CSV par tableau
-                            csv = df.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="Télécharger en CSV",
-                                data=csv,
-                                file_name=f"{onglet_choisi}_table_{i+1}.csv",
-                                mime="text/csv",
-                                key=f"btn_{onglet_choisi}_{i}"
-                            )
+                    data = response.json()
+                    if data.get("status") == "success":
+                        # Convertir JSON → DataFrame
+                        df = pd.DataFrame(data["tableau"])
+                        st.success(f"✅ {len(df)} lignes × {len(df.columns)} colonnes")
+                    else:
+                        st.error(f"❌ {data.get('message')}")
+                        st.stop()
                 else:
                     st.error("❌ Erreur backend")
                     st.stop()
-#            
+            
             if df is None:
                 st.stop()
-#        
-#        ## --- PRÉ-TRAITEMENT ---
-#        ## Nettoyage des NOMS de colonnes
-#        #df.columns = [enlever_accents(col) for col in df.columns]
-#        #
-#        ## Nettoyage du CONTENU des colonnes textuelles
-#        #colonnes_textes = df.select_dtypes(include=['object', 'string']).columns
-#        #for col in colonnes_textes:
-#        #    df[col] = df[col].str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
-#        
-#        # Stockage du DataFrame dans la session
-#        
-#        #st.sidebar.success(f"✅ Fichier chargé : {df.shape[0]} lignes × {df.shape[1]} colonnes")
-#        
-#        # --- ENVOI AU BACKEND POUR RAG ---
-            if not st.session_state.knowledge_ready:
-                with st.sidebar.status("🔄 Indexation des données ...", expanded=True):
-                    
-                    # 1. On prépare le payload au format JSON
-                    payload = {
-                        "session_id": st.session_state.session_id,
-                        "tableaux": st.session_state.tableaux_extraits
-                    }
-                    
-                    # 2. On utilise 'json=payload' au lieu de 'files=' et 'data='
-                    response = requests.post(f"{API_URL}/knowledge_graphe", json=payload)
-                    
-                    if response.status_code == 200:
-                        response_data = response.json()
-                        if response_data.get("statut") == "succès":
-                            st.session_state.knowledge_ready = True
-                            st.write("✅ Indexation réussie !")
-                        else:
-                            st.error(f"❌ Erreur du backend : {response_data.get('erreur')}")
+        
+        # --- PRÉ-TRAITEMENT ---
+        # Nettoyage des NOMS de colonnes
+        df.columns = [enlever_accents(col) for col in df.columns]
+        
+        # Nettoyage du CONTENU des colonnes textuelles
+        colonnes_textes = df.select_dtypes(include=['object', 'string']).columns
+        for col in colonnes_textes:
+            df[col] = df[col].str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
+        
+        # Stockage du DataFrame dans la session
+        st.session_state.dataframe = df
+        st.sidebar.success(f"✅ Fichier chargé : {df.shape[0]} lignes × {df.shape[1]} colonnes")
+        
+        # --- ENVOI AU BACKEND POUR RAG ---
+        if not st.session_state.knowledge_ready:
+            with st.sidebar.status("🔄 Indexation du fichier ...", expanded=True):
+                csv_propre = df.to_csv(index=False).encode('utf-8')
+                files = {"file": (uploaded_file.name, csv_propre, "text/csv")}
+                data = {"session_id": st.session_state.session_id}
+                response = requests.post(f"{API_URL}/ajouter_au_savoir_csv", files=files, data=data)
+                
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if response_data.get("statut") == "succès":
+                        st.session_state.knowledge_ready = True
+                        st.write("✅ Indexation réussie !")
                     else:
-                        st.error(f"❌ Erreur de connexion au serveur Backend (Code {response.status_code}).")
-#        
-#        # --- APERÇU DES DONNÉES ---
-#        with st.expander("📋 Aperçu des données", expanded=True):
-#            st.write(df.head(10))
-#            st.caption(f"📊 Dimensions : {df.shape[0]} lignes × {df.shape[1]} colonnes")
-#            
-#            with st.expander("📝 Colonnes disponibles", expanded=False):
-#                colonnes_info = "\n".join([f"• **{col}** ({dtype})" for col, dtype in df.dtypes.items()])
-#                st.markdown(colonnes_info)
-#            
+                        st.error(f"❌ Erreur du backend : {response_data.get('erreur')}")
+                else:
+                    st.error("❌ Erreur de connexion au serveur Backend.")
+        
+        # --- APERÇU DES DONNÉES ---
+        with st.expander("📋 Aperçu des données", expanded=True):
+            st.write(df.head(10))
+            st.caption(f"📊 Dimensions : {df.shape[0]} lignes × {df.shape[1]} colonnes")
+            
+            with st.expander("📝 Colonnes disponibles", expanded=False):
+                colonnes_info = "\n".join([f"• **{col}** ({dtype})" for col, dtype in df.dtypes.items()])
+                st.markdown(colonnes_info)
+            
     except Exception as e:
         st.sidebar.error(f"❌ Erreur : {e}")
         st.stop()
-#
+
 else:
     st.info("📌 Veuillez charger un fichier CSV ou Excel dans la barre latérale pour commencer.")
     st.stop()
-#
-#
+
+
 # === SECTION 1.5 : CHOIX DU MODE (LES DEUX CERVEAUX) ===
 st.markdown("---")
 with st.sidebar:
@@ -190,71 +159,50 @@ with st.sidebar:
         horizontal=True
     )
     st.markdown("---")
-    st.info(f"""Pour la génération de code, si le bot n'entre pas correctement le nom d'une variable, vous pouvez lui donner #le nom exacte entre guillemets.""")
-#mode_chat = "Discussion & Recherche textuelle"
+    st.info(f"""Pour la génération de code, si le bot n'entre pas correctement le nom d'une variable, vous pouvez lui donner le nom exacte entre guillemets.""")
+
 # === SECTION 2 : HISTORIQUE DU CHAT ===
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["display_content"])
         if "plot" in message:
-            st.plotly_chart(message["plot"], width='stretch')
+            st.plotly_chart(message["plot"], use_container_width=True)
         if "dataframe" in message:
             st.dataframe(message["dataframe"])
 
 # === SECTION 3 : ZONE DE SAISIE ===
-placeholder_text = "ex: 'Fais un graphique des ventes'" if "Analyse" in mode_chat else "ex: 'Que disent les clients ?'"
+# On adapte le placeholder selon le mode
+placeholder_text = "ex: 'Fais un graphique en barres'" if "Analyse" in mode_chat else "ex: 'Que disent les clients sur les retards ?'"
 user_prompt = st.chat_input(placeholder_text)
 
-if user_prompt:
-    is_code_mode = "Analyse" in mode_chat
+if user_prompt and st.session_state.dataframe is not None:
+    df = st.session_state.dataframe
     
-    # -------------------------------------------------------------
-    # NOUVEAUTÉ : Création du dictionnaire de tous les DataFrames
-    # -------------------------------------------------------------
-    dfs_dict = {}
-    colonnes_info_liste = []
-    
-    if "tableaux_extraits" in st.session_state and st.session_state.tableaux_extraits:
-        for i, tab in enumerate(st.session_state.tableaux_extraits):
-            # On s'assure d'avoir un titre valide pour la clé du dictionnaire
-            titre = tab.get("titre") or f"Tableau_sans_titre_{i+1}"
-            data = tab.get("donnees", [])
-            
-            if len(data) > 1:
-                # Création du DataFrame pour ce tableau précis
-                df_temp = pd.DataFrame(data[1:], columns=data[0])
-                dfs_dict[titre] = df_temp
-                
-                # Formatage des infos pour le System Prompt du backend
-                cols_str = ", ".join([f"{col} ({dtype})" for col, dtype in df_temp.dtypes.items()])
-                colonnes_info_liste.append(f'- dfs["{titre}"] -> Colonnes : {cols_str}')
-                
-    colonnes_info = "\n".join(colonnes_info_liste)
-
-    # Sécurité pour le mode Analyse
-    if is_code_mode and not dfs_dict:
-        st.error("⚠️ Aucun tableau n'est disponible pour l'analyse en Python.")
-        st.stop()
-        
     # Affichage du message utilisateur
     with st.chat_message("user"):
         st.markdown(user_prompt)
     
-    st.session_state.messages.append({"role": "user", "display_content": user_prompt, "content": user_prompt})
-
+    st.session_state.messages.append({
+        "role": "user",
+        "display_content": user_prompt,
+        "content": user_prompt
+    })
     
-# === SECTION 4 : APPEL À L'API ET ROUTAGE ===
+    # === SECTION 4 : APPEL À L'API ET ROUTAGE ===
     messages_pour_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+    colonnes_info = "\n".join([f"- {col}: {dtype}" for col, dtype in df.dtypes.items()])
     
     payload = {
         "messages": messages_pour_api,
         "modele": DEFAULT_LLM,
         "temperature": selected_temperature,
         "context_size": selected_context_size,
-        "colonnes_info": colonnes_info, # Envoie la liste détaillée de TOUS les tableaux
+        "colonnes_info": colonnes_info,
         "session_id": st.session_state.session_id
     }
     
+    # Détermination de la route API selon le mode sélectionné
+    is_code_mode = "Analyse" in mode_chat
     url_cible = f"{API_URL}/chat_data_analyst" if is_code_mode else f"{API_URL}/chat_csv_rag"
     
     with st.chat_message("assistant"):
@@ -276,15 +224,22 @@ if user_prompt:
         st.caption(f"⏱️ **Temps** : {elapsed_time:.2f}s")
         
         # === SECTION 5 : TRAITEMENT DE LA RÉPONSE ===
+        
         if is_code_mode:
+            # ---------------------------------------------------------
+            # MODE 1 : ANALYSE (Extraction et exécution du code Python)
+            # ---------------------------------------------------------
             with st.spinner("⚙️ Exécution du code..."):
                 try:
                     code_match = re.search(r'```python\n(.*?)\n```', full_response, re.DOTALL)
+                    
                     if code_match:
                         code_extrait = code_match.group(1)
                         
-                        # 🚨 LA MODIFICATION CRUCIALE POUR exec() : On passe 'dfs_dict' au lieu de 'df' !
-                        execution_env = {"dfs": dfs_dict, "px": px, "pd": pd, "__builtins__": __builtins__}
+                        #with st.expander("👀 Voir le code généré", expanded=False):
+                        #    st.code(code_extrait, language="python")
+                        
+                        execution_env = {"df": df, "px": px, "pd": pd, "__builtins__": __builtins__}
                         exec(code_extrait, execution_env)
                         
                         message_assistant = {
@@ -295,12 +250,12 @@ if user_prompt:
                         
                         if "fig" in execution_env:
                             fig = execution_env["fig"]
-                            st.plotly_chart(fig, width='stretch')
+                            st.plotly_chart(fig, use_container_width=True)
                             message_assistant["plot"] = fig
                         
                         if "df_resultat" in execution_env:
                             df_resultat = execution_env["df_resultat"]
-                            st.dataframe(df_resultat, width='stretch')
+                            st.dataframe(df_resultat, use_container_width=True)
                             message_assistant["dataframe"] = df_resultat
                             
                             csv = df_resultat.to_csv(index=False).encode('utf-8')

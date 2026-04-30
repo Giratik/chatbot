@@ -1,5 +1,5 @@
 import json
-
+import pandas as pd
 import streamlit as st
 import requests
 import uuid
@@ -16,7 +16,6 @@ DEFAULT_VLM = os.environ.get("DEFAULT_VLM", "ministral-3:14b")
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 TEMPERATURE = os.environ.get("TEMPERATURE", 0.3)
 PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
-
 
 #selected_model = "mistral:latest"
 #model_vlm_choix = "mistral-small3.2:24b"
@@ -35,9 +34,6 @@ def new_session():
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.messages = []
     st.session_state.processed_files = []
-    #st.session_state.nom_fichiers = []
-    #st.session_state.contenu_fichiers = []
-    #st.instruction_user = ""
 
 def reset_and_rerun():
     # fonction pour réinitialiser le chat, équivaut à recharger sa page avec f5
@@ -50,10 +46,12 @@ def reset_and_rerun():
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
+with st.sidebar:
+    if PAYLOAD_DEBUG == True : st.json(requests.get(f"{API_URL}/lexique").json())
 
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Chatbot EDP", page_icon="💧", layout="wide")
+st.set_page_config(page_title="Chatbot EDP (avec rag)", page_icon="💧", layout="wide")
 
 if os.path.exists(LOGO_PATH):
     st.logo(LOGO_PATH) 
@@ -73,7 +71,7 @@ for message in st.session_state.messages:
 user_input = st.chat_input(
     "Votre message...",
     accept_file=True,
-    #accept_file="multiple",
+
     file_type= None,
     accept_audio = False,
 )
@@ -82,18 +80,20 @@ user_input = st.chat_input(
 if user_input :
     file_list = ""
     conversation_contexte = ""
-    nom_fichiers = []
-    contenu_fichiers = []
     
     # --- A. GESTION DES FICHIERS (REQUÊTE HTTP) ---
     if hasattr(user_input, "files") and user_input.files:
         i=0
-        
+
         for fichier_joint in user_input.files:
             #if fichier_joint.name not in st.session_state.processed_files:
             st.session_state.processed_files.append(fichier_joint.name)
             fichier_joint = user_input.files[i]
             file_list += f"📎 **Fichier joint :** {fichier_joint.name}\n"
+            if fichier_joint.name.endswith('.xlsx'):
+                xls = pd.ExcelFile(fichier_joint)
+                st.chat_message("Quel page choisir à analyser ?")
+                onglet_choisi = st.sidebar.selectbox("📂 Choisissez l'onglet :", xls.sheet_names)
         
             # On prépare le fichier et les paramètres pour l'API
             files = {"file": (fichier_joint.name, fichier_joint.getvalue(), fichier_joint.type)}
@@ -104,14 +104,9 @@ if user_input :
             
             if reponse.status_code == 200:
                 contenu_extrait = reponse.json().get("contenu", "Fichier vide.")
-                contenu_fichiers.append(contenu_extrait)
-                nom_fichiers.append(fichier_joint.name)
                 conversation_contexte += f"📄 **Contexte du fichier ({fichier_joint.name}) :**\n{contenu_extrait}\n\n---\n\n"
-
             else:
                 st.error(f"Erreur d'analyse pour {fichier_joint.name}")
-
-            i+=1
 
     # --- B. GESTION DU TEXTE ---
     user_text = ""
@@ -120,37 +115,21 @@ if user_input :
     elif isinstance(user_input, str):
         user_text = user_input
 
-    #st.text_area(conversation_contexte)
+    #st.text_area(conversation_contexte)    
     instruction = user_text if user_text else "Peux-tu analyser ce(s) document(s) et m'en faire un résumé ?"
 
     # display_content : vu par l'utilisateur / content : vu par l'IA
     display_text = f"{file_list}\n{instruction}" if file_list else instruction
-    #instruction_v2 = f"{instruction} **Attention :** si {fichier_joint.name} est un PDF, n'effectue absolument aucun résumé, retourne le texte tel quel."
+    #instruction_v2 = f"{instruction} **Attention :** si {fichier_joint.name} est un PDF, n'effectue absolument aucun résumé, redonne le texte tel quel."
     llm_text = f"{conversation_contexte} **Instruction de l'utilisateur :**\n{instruction}"
 
-    #payload_build = {
-    #        "nom_fichiers":nom_fichiers,
-    #        "contenu_fichiers":contenu_fichiers,
-    #        "instruction_user":instruction,
-    #        "context_size": 12000,
-    #    }
-
-    #with requests.post(f"{API_URL}/création_prompt_user", json=payload_build) as r:
-    #    print("Status code:", r.status_code)
-    #    print("Réponse brute:", r.text)  # ← montre ce que le backend a vraiment renvoyé
-    #    print("hehehe")
-    #    print("Status code:", r.status_code)
-    #    print("hehehe")
-    #    print("Headers:", r.headers.get("content-type"))
-    #    reponse = r.json()
     st.session_state.messages.append({
         "role": "user", 
         "display_content": display_text,     
         "content": llm_text      
     })
-        #prompt = reponse["system_prompt"]
 
-    messages_pour_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages] # ==> tableau donc chaque entrée c'est rôle + content
+    messages_pour_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
 
     with st.chat_message("user"):
         st.markdown(display_text)
@@ -164,32 +143,18 @@ if user_input :
             "messages": messages_pour_api,
             "modele": DEFAULT_LLM,
             "temperature": TEMPERATURE,
-            "context_size": CONTEXT_SIZE,
-            #"prompt": prompt
-            #"nom_fichiers": nom_fichiers,
-            #"contenu_fichiers": contenu_fichiers,
-            #"instruction_user": instruction
+            "context_size": CONTEXT_SIZE
         }
         with st.sidebar:
             if PAYLOAD_DEBUG == "show" : st.subheader("🔍 Debug — Payload")
             if PAYLOAD_DEBUG == "show" : st.json(payload)
-            #if PAYLOAD_DEBUG == "show" : st.text(prompt)
-            #if PAYLOAD_DEBUG == "show" : st.json(payload["messages"])
-            #if PAYLOAD_DEBUG == "show" : st.json(payload["messages"]) # comment récupérer le dernier message du json ?
-            # on agrandit spécifiquement le payload pour y mettre le dernier message ?
-            # ça n'a pas de sens car ça prendrait en compte tous les messages, même ceux qui ne sont pas des fichiers
-            # il faudrait vraiment effectuer le traitement du texte avant, spécifiquement pour les fichiers uploadé
-            # donc réfléchir à comment faire le chunking, où le faire, quand le traiter avec l'ia, pourquoi pas avec une route supplémentaire et un prompt spécifique
-            # peut-être modifier message pour api pour avoir une option instruction utilisateur séparé du texte envoyé ==> ne résout pas le problème que ça concernerait tous les messages, quoique si
-            # il faut séparer llm_texte en deux car il contient le texte extrait des pièces jointes et les instructions de l'utilisateur
-            # on pourrait même séparer le texte extrait du nom du fichier
             if PAYLOAD_DEBUG == "show" : st.caption(f"Nombre de messages : {len(messages_pour_api)}")
 #
         # Fonction génératrice pour lire le flux venant de FastAPI
         stats_container = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}  # Dictionnaire pour stocker les stats du LLM
         def lire_flux_api(stats_container):
             # On se connecte à FastAPI avec l'option stream=True
-            with requests.post(f"{API_URL}/chat", json=payload, stream=True) as r:
+            with requests.post(f"{API_URL}/chat_with_rag", json=payload, stream=True) as r:
                 r.raise_for_status() # Lève une erreur si la connexion échoue
                 for chunk in r.iter_content(chunk_size=1024):
                     if chunk:
