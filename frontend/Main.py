@@ -74,7 +74,7 @@ user_input = st.chat_input(
     "Votre message...",
     accept_file=True,
     #accept_file="multiple",
-    file_type= None,
+    file_type= ["pdf", "txt", "md"],
     accept_audio = False,
 )
 
@@ -121,7 +121,7 @@ if user_input :
         user_text = user_input
 
     #st.text_area(conversation_contexte)
-    instruction = user_text if user_text else "Peux-tu analyser ce(s) document(s) et m'en faire un résumé ?"
+    instruction = user_text if user_text else "Peux-tu analyser ce document et m'en faire un résumé ?"
 
     # display_content : vu par l'utilisateur / content : vu par l'IA
     display_text = f"{file_list}\n{instruction}" if file_list else instruction
@@ -171,6 +171,7 @@ if user_input :
             #"instruction_user": instruction
         }
         with st.sidebar:
+            st.info(f"Si la réponse indique 'Token prompt utilisateur : {CONTEXT_SIZE}, alors les informations les plus anciennes de la conversation ont été oubliées. Dans le cas d'une analyse de fichier, le début du fichier a été ignorée dans la génération")
             if PAYLOAD_DEBUG == "show" : st.subheader("🔍 Debug — Payload")
             if PAYLOAD_DEBUG == "show" : st.json(payload)
             #if PAYLOAD_DEBUG == "show" : st.text(prompt)

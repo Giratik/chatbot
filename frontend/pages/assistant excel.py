@@ -26,7 +26,8 @@ def new_session():
     st.session_state.messages = []
     st.session_state.dataframe = None
     st.session_state.csv_data = None
-    st.session_state.knowledge_ready = False # Pour savoir si le backend a bien le CSV
+    st.session_state.tableaux_extraits = None
+    st.session_state.knowledge_ready = False 
 
 def reset_and_rerun():
     """Réinitialise le chat"""
@@ -40,7 +41,11 @@ def enlever_accents(texte):
         return texte
     return unicodedata.normalize('NFKD', str(texte)).encode('ASCII', 'ignore').decode('utf-8')
 
-
+if "initialized" not in st.session_state:
+    new_session()
+    # On marque la session comme initialisée pour ne pas écraser les données 
+    # lors des prochains clics sur des boutons.
+    st.session_state.initialized = True
 
 
 
@@ -58,9 +63,10 @@ if st.sidebar.button("Nouvelle session", width='stretch'):
     reset_and_rerun()
 
 # === SECTION 1 : UPLOAD DU FICHIER ===
-uploaded_file = st.sidebar.file_uploader("Chargez un fichier CSV ou Excel", type=["csv", "xlsx"])
+uploaded_file = st.sidebar.file_uploader("Chargez un fichier Excel", type=["xlsx"])
 
 if uploaded_file:
+    
     try:
         # --- Détection du changement de fichier ou d'onglet ---
         file_id = uploaded_file.name + str(uploaded_file.size)
@@ -71,74 +77,79 @@ if uploaded_file:
             st.session_state.last_file_id = file_id
             st.sidebar.info("📂 Nouveau fichier chargé.")
         
+
+
         # --- Lecture du fichier ---
         if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
+            st.session_state.dataframe = pd.read_csv(uploaded_file)
         
         else:  # Excel
             xls = pd.ExcelFile(uploaded_file)
             onglet_choisi = st.sidebar.selectbox("📂 Choisissez l'onglet :", xls.sheet_names)
             
             # Envoi au backend
-            with st.spinner("⏳ Parsing Excel..."):
-                files = {"file": (uploaded_file.name, uploaded_file.getbuffer())}
-                params = {"sheet_name": onglet_choisi}
-                response = requests.post(f"{API_URL}/parse_every_tab_excel", files=files, params=params)
-                data=response.json()
-                #with st.sidebar:
-                #    data=response.json()
-                #    st.json(data)
-#                
-                if response.status_code == 200:
-                    # On suppose que 'data' est = response.json()
-                    # Utilisation de simples quotes pour éviter l'erreur de syntaxe dans le f-string
-                    liste_tableaux = data.get("tableau", [])
-                    
-                    st.success(f"{len(liste_tableaux)} tableau(x) détecté(s).")
-                    
-                    # On stocke uniquement la liste des tableaux dans la session
-                    st.session_state.tableaux_extraits = liste_tableaux
-                    
-                    # On boucle sur la liste de dictionnaires
-                    for i, table_dict in enumerate(st.session_state.tableaux_extraits):
-                        
-                        # Extraction depuis les clés du dictionnaire JSON
-                        title = table_dict.get("titre")
-                        table_data = table_dict.get("donnees")
-                        
-                        with st.expander(f"Tableau n°{i+1} : {title if title else 'Sans titre'}", expanded=True):
-                            # Création du DataFrame (Ligne 0 = Headers)
-                            df = pd.DataFrame(table_data[1:], columns=table_data[0])
-                            st.dataframe(df, width='stretch')
-                            
-                            # Option export CSV par tableau
-                            csv = df.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="Télécharger en CSV",
-                                data=csv,
-                                file_name=f"{onglet_choisi}_table_{i+1}.csv",
-                                mime="text/csv",
-                                key=f"btn_{onglet_choisi}_{i}"
-                            )
-                else:
-                    st.error("❌ Erreur backend")
-                    st.stop()
+
+            files = {"file": (uploaded_file.name, uploaded_file.getbuffer())}
+            params = {"sheet_name": onglet_choisi}
+            if st.sidebar.button ("Charger la page en mémoire"):
+                st.session_state.knowledge_ready = False
+                with st.spinner("⏳ Parsing Excel..."):
+                    response = requests.post(f"{API_URL}/parse_every_tab_excel", files=files, params=params)
+                    data=response.json()
+                    #with st.sidebar:
+                    #    data=response.json()
+                    #    st.json(data)
+#                    
+                    if response.status_code == 200:
+                        # On suppose que 'data' est = response.json()
+                        # Utilisation de simples quotes pour éviter l'erreur de syntaxe dans le f-string
+                        liste_tableaux = data.get("tableau", [])
+
+                        st.success(f"{len(liste_tableaux)} tableau(x) détecté(s).")
+
+                        # On stocke uniquement la liste des tableaux dans la session
+                        st.session_state.tableaux_extraits = liste_tableaux
+
+                        # On boucle sur la liste de dictionnaires
+                        for i, table_dict in enumerate(st.session_state.tableaux_extraits):
+
+                            # Extraction depuis les clés du dictionnaire JSON
+                            title = table_dict.get("titre")
+                            table_data = table_dict.get("donnees")
+
+                            #with st.expander(f"Tableau n°{i+1} : {title if title else 'Sans titre'}", expanded=True):
+                                # Création du DataFrame (Ligne 0 = Headers)
+                            st.session_state.dataframe = pd.DataFrame(table_data[1:], columns=table_data[0])
+                            #st.dataframe(st.session_state.dataframe, width='stretch')
+
+                                # Option export CSV par tableau
+                                #csv = st.session_state.dataframe.to_csv(index=False).encode('utf-8')
+                                #st.download_button(
+                                #    label="Télécharger en CSV",
+                                #    data=csv,
+                                #    file_name=f"{onglet_choisi}_table_{i+1}.csv",
+                                #    mime="text/csv",
+                                #    key=f"btn_{onglet_choisi}_{i}"
+                                #)
+                    else:
+                        st.error("❌ Erreur backend")
+                        st.stop()
 #            
-            if df is None:
+            if st.session_state.dataframe is None:
                 st.stop()
 #        
 #        ## --- PRÉ-TRAITEMENT ---
 #        ## Nettoyage des NOMS de colonnes
-#        #df.columns = [enlever_accents(col) for col in df.columns]
+#        #st.session_state.dataframe.columns = [enlever_accents(col) for col in st.session_state.dataframe.columns]
 #        #
 #        ## Nettoyage du CONTENU des colonnes textuelles
-#        #colonnes_textes = df.select_dtypes(include=['object', 'string']).columns
+#        #colonnes_textes = st.session_state.dataframe.select_dtypes(include=['object', 'string']).columns
 #        #for col in colonnes_textes:
-#        #    df[col] = df[col].str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
+#        #    st.session_state.dataframe[col] = st.session_state.dataframe[col].str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
 #        
 #        # Stockage du DataFrame dans la session
 #        
-#        #st.sidebar.success(f"✅ Fichier chargé : {df.shape[0]} lignes × {df.shape[1]} colonnes")
+#        #st.sidebar.success(f"✅ Fichier chargé : {st.session_state.dataframe.shape[0]} lignes × {st.session_state.dataframe.shape[1]} colonnes")
 #        
 #        # --- ENVOI AU BACKEND POUR RAG ---
             if not st.session_state.knowledge_ready:
@@ -165,11 +176,11 @@ if uploaded_file:
 #        
 #        # --- APERÇU DES DONNÉES ---
 #        with st.expander("📋 Aperçu des données", expanded=True):
-#            st.write(df.head(10))
-#            st.caption(f"📊 Dimensions : {df.shape[0]} lignes × {df.shape[1]} colonnes")
+#            st.write(st.session_state.dataframe.head(10))
+#            st.caption(f"📊 Dimensions : {st.session_state.dataframe.shape[0]} lignes × {st.session_state.dataframe.shape[1]} colonnes")
 #            
 #            with st.expander("📝 Colonnes disponibles", expanded=False):
-#                colonnes_info = "\n".join([f"• **{col}** ({dtype})" for col, dtype in df.dtypes.items()])
+#                colonnes_info = "\n".join([f"• **{col}** ({dtype})" for col, dtype in st.session_state.dataframe.dtypes.items()])
 #                st.markdown(colonnes_info)
 #            
     except Exception as e:
@@ -182,11 +193,22 @@ else:
 #
 #
 # === SECTION 1.5 : CHOIX DU MODE (LES DEUX CERVEAUX) ===
+for i, table_dict in enumerate(st.session_state.tableaux_extraits):
+
+    # Extraction depuis les clés du dictionnaire JSON
+    title = table_dict.get("titre")
+    table_data = table_dict.get("donnees")
+
+    with st.expander(f"Tableau n°{i+1} : {title if title else 'Sans titre'}", expanded=True):
+        # Création du DataFrame (Ligne 0 = Headers)
+        st.session_state.dataframe = pd.DataFrame(table_data[1:], columns=table_data[0])
+        st.dataframe(st.session_state.dataframe, width='stretch')
+
 st.markdown("---")
 with st.sidebar:
     mode_chat = st.radio(
         "🧠 Comment voulez-vous interagir avec ce fichier ?",
-        ["📊 Analyse & Graphiques (Génération de code)", "💬 Discussion & Recherche textuelle (RAG)"],
+        ["💬 Discussion & Recherche textuelle (RAG)", "📊 Analyse & Graphiques (Génération de code)"],
         horizontal=True
     )
     st.markdown("---")
@@ -283,7 +305,7 @@ if user_prompt:
                     if code_match:
                         code_extrait = code_match.group(1)
                         
-                        # 🚨 LA MODIFICATION CRUCIALE POUR exec() : On passe 'dfs_dict' au lieu de 'df' !
+                        # 🚨 LA MODIFICATION CRUCIALE POUR exec() : On passe 'dfs_dict' au lieu de 'st.session_state.dataframe' !
                         execution_env = {"dfs": dfs_dict, "px": px, "pd": pd, "__builtins__": __builtins__}
                         exec(code_extrait, execution_env)
                         
@@ -304,15 +326,15 @@ if user_prompt:
                             message_assistant["dataframe"] = df_resultat
                             
                             csv = df_resultat.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📥 Télécharger le résultat (CSV)",
-                                data=csv,
-                                file_name="donnees_traitees.csv",
-                                mime="text/csv",
-                                key=f"dl_{len(st.session_state.messages)}"
-                            )
+                            #st.download_button(
+                            #    label="📥 Télécharger le résultat (CSV)",
+                            #    data=csv,
+                            #    file_name="donnees_traitees.csv",
+                            #    mime="text/csv",
+                            #    key=f"dl_{len(st.session_state.messages)}"
+                            #)
                             
-                            st.session_state.dataframe = df_resultat
+                            #st.session_state.dataframe = df_resultat
                         
                         st.session_state.messages.append(message_assistant)
                         

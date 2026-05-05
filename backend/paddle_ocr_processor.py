@@ -1,6 +1,5 @@
 """
 PaddleOCR Processor - OCR avec support GPU CUDA
-Remplace Tesseract pour une meilleure performance et précision
 """
 
 import io
@@ -13,8 +12,6 @@ import numpy as np
 import time
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import spacy
-nlp = spacy.load("fr_core_news_sm")
 
 import httpx
 from ollama import Client
@@ -70,76 +67,6 @@ except Exception as e:
     ocr = None
 
 
-#def ultra_compress(text): # = compression max
-#    doc = nlp(text)
-#    compressed_sentences = []
-#    for sent in doc.sents:
-#        keywords = [token.text for token in sent if token.pos_ in {"NOUN", "VERB", "NUM", "ADJ"}]
-#        compressed_sentences.append("→".join(keywords[:4]))  # Keep first 3-4 key words
-#    return " ".join(compressed_sentences)
-#
-#def ultra_compress(text): # compression partielle mais imparfaite
-#    doc = nlp(text) 
-#    
-#    compressed_sentences = []
-#    for sent in doc.sents:
-#        # On ajoute NUM (Nombres), AUX (Auxiliaires), X (Inconnus/Lettres isolées), et SYM (Symboles)
-#        allowed_pos = {"NOUN", "VERB", "ADJ", "PROPN", "NUM", "AUX", "X", "SYM"}
-#        
-#        keywords = [token.text for token in sent if token.pos_ in allowed_pos]
-#        
-#        if keywords:
-#            compressed_sentences.append(" ".join(keywords)) 
-#            
-#    return "\n".join(compressed_sentences)
-#
-
-#def ultra_compress(text): # compression V2 qui semble conserver les infos nécessaires 
-#    doc = nlp(text) 
-#    compressed_sentences = []
-#    for sent in doc.sents:
-#        allowed_pos = {"NOUN", "VERB", "ADJ", "PROPN", "NUM", "AUX", "X", "SYM"}
-#        
-#        keywords = []
-#        for token in sent:
-#            text_token = token.text.strip()
-#            
-#            if token.pos_ in allowed_pos:
-#                keywords.append(text_token)
-#            elif len(text_token) == 1 and text_token.isalpha():  # ⭐ Lettres isolées
-#                keywords.append(text_token)
-#            elif text_token.isdigit():  # ⭐ Nombres isolés
-#                keywords.append(text_token)
-#        
-#        if keywords:
-#            compressed_sentences.append(" ".join(keywords)) 
-#    return "\n".join(compressed_sentences)
-
-def ultra_compress(text): # compression V3 mélange de de V0 et V2 
-    doc = nlp(text) 
-    compressed_sentences = []
-    for sent in doc.sents:
-        allowed_pos = {"NOUN", "VERB", "NUM", "ADJ"}
-        
-        keywords = []
-        for token in sent:
-            text_token = token.text.strip()
-            
-            if token.pos_ in allowed_pos:
-                keywords.append(text_token)
-            elif len(text_token) == 1 and text_token.isalpha():  # ⭐ Lettres isolées
-                keywords.append(text_token)
-            elif text_token.isdigit():  # ⭐ Nombres isolés
-                keywords.append(text_token)
-        
-        if keywords:
-            compressed_sentences.append(" ".join(keywords)) 
-    return "\n".join(compressed_sentences)
-
-
-
-
-
 def fix_orientation(image):
     """
     Détecte l'orientation du texte et pivote l'image si nécessaire.
@@ -157,7 +84,6 @@ def fix_orientation(image):
 def preprocess_image_for_ocr(image):
     """
     Prétraite l'image pour améliorer la reconnaissance PaddleOCR.
-    PaddleOCR est plus robuste que Tesseract, donc preprocessing léger.
     """
     image = fix_orientation(image)
     cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -269,8 +195,6 @@ def extract_pdf_ocr_paddle(pdf_bytes):
             text_content += f"\n\n----- Page {page_idx} -----\n\n"
             
             try:
-                # Preprocessing léger
-                #processed = preprocess_image_for_ocr(image)
                 processed = image
                 
                 # Extraction PaddleOCR
@@ -282,28 +206,6 @@ def extract_pdf_ocr_paddle(pdf_bytes):
                 
                 # Nettoyage LLM optionnel (garder rapide pour GPU)
                 if page_text.strip():
-                #    # Optionnel: nettoyage LLM pour PDFs complexes
-                #    if len(page_text) > 500:  # Seulement pour gros textes
-                #        try:
-                #            clean_text = inferring_ollama(
-                #                messages=[
-                #                    {"role": "system", "content": "Nettoie le texte extrait par OCR. Garde seulement le contenu pertinent, corrige les erreurs manifestes."},
-                #                    {"role": "user", "content": f"Texte OCR:\n\n{page_text}"}
-                #                ],
-                #                model=DEFAULT_LLM,
-                #                temperature=0.1,
-                #                stream=False,
-                #                context_size=CONTEXT_SIZE
-                #            )
-                #            
-                #            if isinstance(clean_text, str):
-                #                page_text = clean_text.strip()
-                #            else:
-                #                page_text = "".join(clean_text).strip()
-                #        except Exception as e:
-                #            print(f"⚠️  Nettoyage LLM page {page_idx}: {e}")
-                #            # Garder le texte brut si LLM échoue
-                #    
                     text_content += page_text + "\n"
             
             except Exception as e:
@@ -397,9 +299,7 @@ def process_file_with_ocr(uploaded_file, file_type="application/pdf"):
             
             # Phase 1: PaddleOCR (primaire)
             ocr_text = extract_pdf_ocr_paddle(file_bytes)
-            #compressed_ocr_text = ultra_compress(ocr_text) if ocr_text else ""
             compressed_ocr_text = token_saver(ocr_text) if ocr_text else ""
-            #if ocr_text and len(ocr_text.replace("\n", "").replace(" ", "")) > 150:
             print("✅ PaddleOCR OK")
             return compressed_ocr_text
 

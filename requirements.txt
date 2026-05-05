@@ -35,7 +35,7 @@ pyarrow==23.0.1
 pydantic==2.12.5
 pydantic_core==2.41.5
 pydeck==0.9.1
-pytesseract==0.3.13
+#pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-multipart==0.0.22
 pytz==2026.1.post1
