@@ -30,7 +30,7 @@ from file_type_action import analyser_contenu_fichier
 from csv_rag import process_csv_file, get_csv_collection_name, delete_csv_session, get_csv_client
 from newer_rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
 from traitement_long_fichier import identification_cas, map_reducing
-from excel_parser_robust import find_tables_in_sheet
+#from excel_parser_robust import find_tables_in_sheet
 import robuster
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
@@ -483,56 +483,56 @@ RÈGLES :
 
 
 
-@app.post("/parse_excel")
-async def parse_excel_route(
-    file: UploadFile = File(...),
-    sheet_name: str = Query("Sheet1")
-):
-    """
-    Parse un Excel et retourne UN tableau spécifique.
-    """
-    try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name=sheet_name)
-        
-        if not tableaux:
-            return {"status": "error", "message": "Aucun tableau trouvé"}
-        
-        # Retourne le premier tableau détecté
-        df = tableaux[0]["dataframe"]
-        
-        return {
-            "status": "success",
-            "nom_fichier": file.filename,
-            "tableau": df.to_dict(orient="records"),  # ← format JSON
-            "colonnes": list(df.columns),
-            "shape": df.shape
-        }
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+#@app.post("/parse_excel")
+#async def parse_excel_route(
+#    file: UploadFile = File(...),
+#    sheet_name: str = Query("Sheet1")
+#):
+#    """
+#    Parse un Excel et retourne UN tableau spécifique.
+#    """
+#    try:
+#        tableaux = find_tables_in_sheet(file.file, sheet_name=sheet_name)
+#        
+#        if not tableaux:
+#            return {"status": "error", "message": "Aucun tableau trouvé"}
+#        
+#        # Retourne le premier tableau détecté
+#        df = tableaux[0]["dataframe"]
+#        
+#        return {
+#            "status": "success",
+#            "nom_fichier": file.filename,
+#            "tableau": df.to_dict(orient="records"),  # ← format JSON
+#            "colonnes": list(df.columns),
+#            "shape": df.shape
+#        }
+#    
+#    except Exception as e:
+#        return {"status": "error", "message": str(e)}
     
 
-@app.post("/get_tableau")
-async def get_tableau(file: UploadFile = File(...), tableau_idx: int = 0):
-    """
-    Récupère un tableau spécifique en tant que CSV/JSON.
-    """
-    try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name="Sheet1")
-        
-        if tableau_idx >= len(tableaux):
-            return {"status": "error", "message": f"Tableau {tableau_idx} inexistant"}
-        
-        df = tableaux[tableau_idx]["dataframe"]
-        
-        return {
-            "status": "success",
-            "tableau": df.to_dict(orient="records"),
-            "nom": tableaux[tableau_idx]["nom"]
-        }
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+#@app.post("/get_tableau")
+#async def get_tableau(file: UploadFile = File(...), tableau_idx: int = 0):
+#    """
+#    Récupère un tableau spécifique en tant que CSV/JSON.
+#    """
+#    try:
+#        tableaux = find_tables_in_sheet(file.file, sheet_name="Sheet1")
+#        
+#        if tableau_idx >= len(tableaux):
+#            return {"status": "error", "message": f"Tableau {tableau_idx} inexistant"}
+#        
+#        df = tableaux[tableau_idx]["dataframe"]
+#        
+#        return {
+#            "status": "success",
+#            "tableau": df.to_dict(orient="records"),
+#            "nom": tableaux[tableau_idx]["nom"]
+#        }
+#    
+#    except Exception as e:
+#        return {"status": "error", "message": str(e)}
     
 
 
