@@ -1,3 +1,5 @@
+#backend/main.py
+
 import json
 import shutil
 import tempfile
@@ -33,6 +35,28 @@ import robuster
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+
+
+SYSTEM_PROMPT = """
+Tu es "EDP-IA", l'assistant IA officiel de l'entreprise Eau de Paris. 
+
+--- TON IDENTITÉ ET TON RÔLE ---
+* Tu es un expert technique, professionnel, mais toujours amical et concis.
+* Ton but est d'aider les salariés de EDP à analyser leurs documents et à répondre à leurs questions.
+* Tu ne dois jamais inventer d'informations (pas d'hallucinations). Si tu ne sais pas, dis-le simplement.
+
+--- TES CONNAISSANCES DE BASE ---
+* L'entreprise se spécialise dans la distribution de l'eau dans la ville de Paris.
+
+--- RÈGLES DE FORMATAGE ---
+* Réponds toujours en français.
+* Utilise le format Markdown pour structurer tes réponses (listes à puces, texte en gras pour mettre en évidence les éléments clés).
+* Ne sois pas trop bavard : va droit au but.
+* Répond avec un minimum de déférence.
+"""
+
+
 
 
 # Création de l'application FastAPI
@@ -198,11 +222,11 @@ async def generer_chat(requete: ChatRequest):
     try:
         stats_dict = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}  # Dictionnaire pour stocker les stats du LLM
 
-        system_prompt = """Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
+        #system_prompt = """Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
         #Réponds directement sans introduction ni formule de politesse."""
 
         # On place le prompt système au tout début, suivi de l'historique envoyé par Streamlit
-        messages_pour_ollama = [{"role": "system", "content": system_prompt}] + requete.messages
+        messages_pour_ollama = [{"role": "system", "content": SYSTEM_PROMPT}] + requete.messages
 
         # 2. Création du générateur (Streaming)
         def stream_generator():
@@ -245,9 +269,11 @@ async def generer_chat(requete: ChatRequest):
 
         stats_dict = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}  # Dictionnaire pour stocker les stats du LLM
         
-        system_prompt = f"""Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
-        Réponds directement sans introduction ni formule de politesse. Voici le lexique des acronymes détectés dans la question :
-        {contexte}. Si la requête de l'utilisateur n'a rien à voir avec les acronymes détectés, tu ignores les acronymes détectés et converse normalement avec l'utilisateur. Requête de l'utilisateur : """
+        system_prompt = f"""{SYSTEM_PROMPT} \nVoici le lexique des acronymes de Eau de Paris détectés dans la question :
+        {contexte}. 
+        ATTENTION : n'invente aucune information, si l'acronyme apparait dans le lexique tu ne peux utiliser dans ta réponse que la définition associée et pas provenant de tes connaissances.
+        Si la requête de l'utilisateur comporte un acronyme qui n'apparait pas dans ton lexique, tu dois l'en informer et à ce moment utilise tes connassances pour répondre.
+        Si la requête de l'utilisateur n'a rien à voir avec les acronymes détectés, tu ignores les acronymes détectés et converse normalement avec l'utilisateur. Requête de l'utilisateur : """
         # 2. On enrichit le message système avec ces définitions
         prompt_lexique = ""
         #if contexte_lexique:
@@ -300,7 +326,7 @@ async def generer_chat_data_analyst(requete: ChatRequest_csv):
 
     try:
         # 1. NOUVEAU PROMPT : Le LLM manipule un dictionnaire 'dfs'
-        system_prompt = f"""Tu es un expert en data science Python. 
+        system_prompt = f"""{SYSTEM_PROMPT} \n Mais ici, tu es un expert en data science Python. 
 Tu as à ta disposition un dictionnaire Python nommé `dfs` contenant plusieurs DataFrames pandas.
 Les clés de ce dictionnaire sont les noms des tableaux. Voici les tableaux disponibles dans `dfs` et leurs colonnes :
 {requete.colonnes_info}
@@ -395,7 +421,7 @@ async def generer_chat_csv_rag(requete: ChatRequest_csv):
         # 1. Reconnexion de LangChain à la base existante
         # (N'oubliez pas l'URL forcée qui nous a sauvé tout à l'heure !)
         embeddings = OllamaEmbeddings(
-            model="qwen3-embedding:0.6b",
+            model="embeddinggemma",
             base_url=URL_OLLAMA
         )
         

@@ -74,7 +74,7 @@ user_input = st.chat_input(
     "Votre message...",
     accept_file=True,
     #accept_file="multiple",
-    file_type= ["pdf", "txt", "md"],
+    file_type= ["pdf", "txt", "md", "docx", "pptx", "jpg", "webp", "png"],
     accept_audio = False,
 )
 

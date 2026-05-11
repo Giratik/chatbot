@@ -63,7 +63,7 @@ if st.sidebar.button("Nouvelle session", width='stretch'):
     reset_and_rerun()
 
 # === SECTION 1 : UPLOAD DU FICHIER ===
-uploaded_file = st.sidebar.file_uploader("Chargez un fichier Excel", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("Chargez un fichier Excel", type=["xlsx", "csv"])
 
 if uploaded_file:
     
