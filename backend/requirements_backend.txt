@@ -75,3 +75,6 @@ python-pptx
 
 
 python-calamine
+
+
+fastexcel

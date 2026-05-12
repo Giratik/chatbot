@@ -3,8 +3,7 @@
 import json
 import shutil
 import tempfile
-
-
+import traceback
 
 from fastapi import FastAPI, UploadFile, File, Form, Query, APIRouter, Body
 from fastapi.responses import StreamingResponse
@@ -28,7 +27,7 @@ from langchain_community.embeddings import OllamaEmbeddings
 from ollama_client import inferring_ollama
 from file_type_action import analyser_contenu_fichier
 from rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
-import xlsx_parser
+import new_xlsx_parser
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -340,8 +339,8 @@ async def generer_chat_csv_rag(requete: ChatRequest_csv):
     try:
         try:
             # On récupère le client en mémoire
-            client = xlsx_parser.get_csv_client(requete.session_id)
-            session_collection_name = xlsx_parser.get_csv_collection_name(requete.session_id)
+            client = new_xlsx_parser.get_csv_client(requete.session_id)
+            session_collection_name = new_xlsx_parser.get_csv_collection_name(requete.session_id)
             
             # Vérification si la collection existe nativement
             collection_native = client.get_collection(session_collection_name)
@@ -428,17 +427,29 @@ async def parse_excel_route(
         # 2. Wrap it in a BytesIO object (this gives openpyxl the 'seekable' attribute it needs)
         excel_data = io.BytesIO(contents)
         
-        # 3. Pass the BytesIO object instead of file.file
-        tableaux = xlsx_parser.find_tables_in_sheet(excel_data, sheet_name=sheet_name)
+        # 3. Pass the BytesIO object to the new Polars-based parser
+        tableaux = new_xlsx_parser.find_tables_in_sheet(excel_data, sheet_name=sheet_name)
         
         if not tableaux:
             return {"status": "error", "message": "Aucun tableau trouvé"}
         
-        # 4. Convert the list of tuples into a clean list of JSON objects (from the previous fix)
-        formatted_tableaux = [
-            {"titre": title, "donnees": data} 
-            for title, data in tableaux
-        ]
+        # 4. Convert the list of tuples (title, pl.DataFrame) into a clean list of JSON objects
+        # We convert Polars DataFrames back to lists of lists for compatibility
+        formatted_tableaux = []
+        for title, df_polars in tableaux:
+            # Convert Polars DataFrame to list of lists
+            headers = df_polars.columns
+            data_rows = df_polars.to_dicts()
+            
+            # Build the expected format: list where first element is headers, then data
+            table_data = [list(headers)]
+            for row_dict in data_rows:
+                table_data.append([row_dict.get(col) for col in headers])
+            
+            formatted_tableaux.append({
+                "titre": title or "Sans titre",
+                "donnees": table_data
+            })
         
         return {
             "status": "success",
@@ -456,18 +467,17 @@ async def knowledge_graphe(request: KnowledgeRequest):
     """Reçoit les tableaux extraits au format JSON, crée la base chroma_db et la sauvegarde."""
     try:
         # 1. Convertir la liste de dictionnaires JSON en liste de tuples 
-        # pour être compatible avec robuster.prepare_rag_documents()
-        tables_for_robuster = [
+        # pour être compatible avec prepare_rag_documents()
+        tables_for_rag = [
             (tab.get("titre", "Sans titre"), tab.get("donnees", [])) 
             for tab in request.tableaux
         ]
 
-        # 2. Préparation des documents RAG (conversion en DataFrame puis Markdown)
-        docs = xlsx_parser.prepare_rag_documents(tables_for_robuster)
+        # 2. Préparation des documents RAG (conversion en DataFrame Polars puis Markdown)
+        docs = new_xlsx_parser.prepare_rag_documents(tables_for_rag)
 
-        # 3. Création du Vector Store (On passe bien le session_id à la fonction !)
-        #robuster.create_vector_store(docs, request.session_id, embeddings)
-        vector_index = xlsx_parser.create_vector_store(docs, request.session_id)
+        # 3. Création du Vector Store (Version avec compatibilité mémoire pour les requêtes RAG)
+        vector_index = new_xlsx_parser.create_vector_store_legacy(docs, request.session_id)
         
         msg = f"{len(docs)} document(s) indexé(s) — base vectorielle prête !"
         print(msg)
@@ -478,4 +488,4 @@ async def knowledge_graphe(request: KnowledgeRequest):
     except Exception as e:
         print(f"Erreur lors de l'indexation : {str(e)}")
         # On renvoie aussi un statut d'erreur explicite
-        return {"statut": "erreur", "erreur": str(e)}
+        return {"statut": "erreur", "message": str(e), "traceback": traceback.format_exc()}
