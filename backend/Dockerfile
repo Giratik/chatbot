@@ -2,6 +2,8 @@ FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
+# Indiquer à tiktoken d'utiliser ce dossier au lieu du dossier temporaire par défaut
+ENV TIKTOKEN_CACHE_DIR=/app/tiktoken_cache 
 
 RUN apt-get update && apt-get install -y \
     python3.10 python3-pip poppler-utils \
@@ -25,8 +27,6 @@ RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='fr', use_angle_c
 # RUN python -m spacy download fr_core_news_sm 
 
 COPY . .
-# Indiquer à tiktoken d'utiliser ce dossier au lieu du dossier temporaire par défaut
-ENV TIKTOKEN_CACHE_DIR=/app/tiktoken_cache
 
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

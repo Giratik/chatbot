@@ -27,7 +27,7 @@ from langchain_community.embeddings import OllamaEmbeddings
 # Import de tes fonctions locales existantes
 from ollama_client import inferring_ollama
 from file_type_action import analyser_contenu_fichier
-from backend.rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
+from rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
 import xlsx_parser
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
