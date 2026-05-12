@@ -1,10 +1,12 @@
+#backend/main.py
+
 import json
 import shutil
 import tempfile
 
 
 
-from fastapi import FastAPI, UploadFile, File, Form, Query
+from fastapi import FastAPI, UploadFile, File, Form, Query, APIRouter, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 #from prometheus_fastapi_instrumentator import Instrumentator
@@ -25,12 +27,34 @@ from langchain_community.embeddings import OllamaEmbeddings
 # Import de tes fonctions locales existantes
 from ollama_client import inferring_ollama
 from file_type_action import analyser_contenu_fichier
-from csv_rag import process_csv_file, get_csv_collection_name, delete_csv_session, get_csv_client
-from newer_rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
-from traitement_long_fichier import identification_cas, map_reducing
-from excel_parser_robust import find_tables_in_sheet
+from backend.rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
+import xlsx_parser
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
+URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+
+
+SYSTEM_PROMPT = """
+Tu es "EDP-IA", l'assistant IA officiel de l'entreprise Eau de Paris. 
+
+--- TON IDENTITÉ ET TON RÔLE ---
+* Tu es un expert technique, professionnel, mais toujours amical et concis.
+* Ton but est d'aider les salariés de EDP à analyser leurs documents et à répondre à leurs questions.
+* Tu ne dois jamais inventer d'informations (pas d'hallucinations). Si tu ne sais pas, dis-le simplement.
+
+--- TES CONNAISSANCES DE BASE ---
+* L'entreprise se spécialise dans la distribution de l'eau dans la ville de Paris.
+
+--- RÈGLES DE FORMATAGE ---
+* Réponds toujours en français.
+* Utilise le format Markdown pour structurer tes réponses (listes à puces, texte en gras pour mettre en évidence les éléments clés).
+* Ne sois pas trop bavard : va droit au but.
+* Répond avec un minimum de déférence.
+"""
+
+
+
 
 # Création de l'application FastAPI
 app = FastAPI(title="API EDP Chatbot")
@@ -69,6 +93,10 @@ class ChatRequest_csv(BaseModel):
 class SheetFile(BaseModel):
     file: UploadFile  # ← le type FastAPI pour les uploads
     onglet_choisi: str
+
+class KnowledgeRequest(BaseModel):
+    session_id: str
+    tableaux: List[Dict[str, Any]]  # Format: [{"titre": "...", "donnees": [...]}]
 
 
 def routine_demarrage():
@@ -139,43 +167,6 @@ async def traiter_fichier(file: UploadFile = File(...), modele: str = Form(...))
     #    active_sessions.dec()
 
 
-
-#@app.post("/création_prompt_user")
-#async def creation_prompt_user(requete: build_prompt):
-#    resultat = identification_cas(
-#            nom_fichiers=requete.nom_fichiers,
-#            contenu_fichiers=requete.contenu_fichiers,
-#            instruction_user= requete.instruction_user,
-#            context_size=requete.context_size,
-#        )
-#    
-#    conversation_contexte = ""
-#    
-#    # Cas sans fichier : on envoie juste l'instruction utilisateur
-#    if len(requete.nom_fichiers) == 0:
-#        llm_text = requete.instruction_user
-#    elif resultat["necessite_map_reduce"] == True:
-#        print(">>> CAS MAP REDUCE")  # ← ajoute ça
-#        conversation_contexte = map_reducing(requete.contenu_fichiers[0]["compressed_prompt"])
-#        llm_text = f"Nom du fichier : {resultat['nom_fichier']}: {conversation_contexte} **Instruction de l'utilisateur :**\n{requete.instruction_user}"
-#    else:
-#        print(">>> CAS DIRECT")      # ← et ça
-#        llm_text = f"Nom du fichier : {resultat['nom_fichier']}: {resultat['contenu_fichier']} **Instruction de l'utilisateur :**\n{requete.instruction_user}"
-#
-#
-#
-#    return {
-#        "role": "user",
-#        "content": llm_text,
-#        "nom_fichiers":requete.nom_fichiers,
-#        "contenu_fichiers":requete.contenu_fichiers,
-#        "instruction_user":requete.instruction_user,
-#        "system_prompt":resultat["system_prompt"]
-#    }
-
-
-
-
 # --- ROUTE 2 : GÉNÉRATION DU CHAT (STREAMING) ---
 @app.post("/chat")
 async def generer_chat(requete: ChatRequest):
@@ -191,11 +182,11 @@ async def generer_chat(requete: ChatRequest):
     try:
         stats_dict = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}  # Dictionnaire pour stocker les stats du LLM
 
-        system_prompt = """Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
+        #system_prompt = """Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
         #Réponds directement sans introduction ni formule de politesse."""
 
         # On place le prompt système au tout début, suivi de l'historique envoyé par Streamlit
-        messages_pour_ollama = [{"role": "system", "content": system_prompt}] + requete.messages
+        messages_pour_ollama = [{"role": "system", "content": SYSTEM_PROMPT}] + requete.messages
 
         # 2. Création du générateur (Streaming)
         def stream_generator():
@@ -238,9 +229,11 @@ async def generer_chat(requete: ChatRequest):
 
         stats_dict = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}  # Dictionnaire pour stocker les stats du LLM
         
-        system_prompt = f"""Tu es un assistant professionnel qui répond aux utilisateurs de manière claire, concise et informative en français. Tu fournis des réponses précises et utiles en fonction des questions posées.
-        Réponds directement sans introduction ni formule de politesse. Voici le lexique des acronymes détectés dans la question :
-        {contexte}. Si la requête de l'utilisateur n'a rien à voir avec les acronymes détectés, tu ignores les acronymes détectés et converse normalement avec l'utilisateur. Requête de l'utilisateur : """
+        system_prompt = f"""{SYSTEM_PROMPT} \nVoici le lexique des acronymes de Eau de Paris détectés dans la question :
+        {contexte}. 
+        ATTENTION : n'invente aucune information, si l'acronyme apparait dans le lexique tu ne peux utiliser dans ta réponse que la définition associée et pas provenant de tes connaissances.
+        Si la requête de l'utilisateur comporte un acronyme qui n'apparait pas dans ton lexique, tu dois l'en informer et à ce moment utilise tes connassances pour répondre.
+        Si la requête de l'utilisateur n'a rien à voir avec les acronymes détectés, tu ignores les acronymes détectés et converse normalement avec l'utilisateur. Requête de l'utilisateur : """
         # 2. On enrichit le message système avec ces définitions
         prompt_lexique = ""
         #if contexte_lexique:
@@ -289,86 +282,53 @@ async def generer_chat(requete: ChatRequest):
 @app.post("/chat_data_analyst")
 async def generer_chat_data_analyst(requete: ChatRequest_csv):
     """Reçoit l'historique complet pour un assistant data analyst, génère du code Python."""
-    #active_sessions.inc()
     start_time = time.time()
 
     try:
-        # 1. Injection du System Prompt pour Data Analysis
-        system_prompt = f"""Tu es un expert en data science Python. 
-Tu as à ta disposition un DataFrame pandas déjà chargé et nommé `df`.
-Voici les colonnes disponibles dans le DataFrame :
+        # 1. NOUVEAU PROMPT : Le LLM manipule un dictionnaire 'dfs'
+        system_prompt = f"""{SYSTEM_PROMPT} \n Mais ici, tu es un expert en data science Python. 
+Tu as à ta disposition un dictionnaire Python nommé `dfs` contenant plusieurs DataFrames pandas.
+Les clés de ce dictionnaire sont les noms des tableaux. Voici les tableaux disponibles dans `dfs` et leurs colonnes :
 {requete.colonnes_info}
 
 L'utilisateur va te faire une demande. Selon la demande, tu dois générer du code Python pour faire l'une de ces deux actions (ou les deux) :
 
-ACTION A - GRAPHIQUES : Si on te demande un graphique, utilise `plotly.express` (importé sous `px`) et stocke le résultat OBLIGATOIREMENT dans une variable nommée `fig`.
+ACTION A - GRAPHIQUES : Si on te demande un graphique, utilise `plotly.express` (importé sous `px`). Extraie le bon DataFrame depuis le dictionnaire (ex: `df = dfs["Nom_du_tableau"]`) et stocke le résultat OBLIGATOIREMENT dans une variable nommée `fig`.
 
-ACTION B - FILTRAGE / MODIFICATION : Si on te demande de filtrer, trier, modifier ou calculer des données, fais les opérations sur `df` et stocke le DataFrame final OBLIGATOIREMENT dans une variable nommée `df_resultat`.
+ACTION B - FILTRAGE / MODIFICATION : Si on te demande de manipuler les données, extraie le bon DataFrame depuis `dfs`, fais les opérations et stocke le DataFrame final OBLIGATOIREMENT dans une variable nommée `df_resultat`.
 
 RÈGLES STRICTES :
 1. Réponds UNIQUEMENT avec le code Python, entouré par ```python et ```.
-2. UTILISE TOUJOURS les noms de colonnes EXACTS fournis ci-dessus.
-3. N'utilise JAMAIS de guillemets simples (') pour les noms de colonnes ou les chaînes de caractères. Utilise TOUJOURS des guillemets doubles (").
+2. UTILISE TOUJOURS les noms de colonnes et les clés du dictionnaire EXACTS fournis ci-dessus.
+3. N'utilise JAMAIS de guillemets simples (') pour les noms de colonnes ou clés. Utilise TOUJOURS des guillemets doubles (").
 4. Ne recrée pas les imports de pandas ou plotly.
-5. Le code doit être exécutable et ne doit pas avoir d'erreurs.
-6. IMPORTANT - GESTION DES ACCENTS : Le DataFrame a été pré-traité. Les noms de colonnes et toutes les données textuelles ne contiennent PLUS D'ACCENTS. Si l'utilisateur te demande de filtrer sur un mot accentué (ex: "Électricité", "Hélène"), tu DOIS OBLIGATOIREMENT retirer les accents dans la valeur de ton filtre Python (ex: "Electricite", "Helene").
-7. Donne UNIQUEMENT le code, sans explications supplémentaires ni suggestions."""
+5. IMPORTANT - GESTION DES ACCENTS : Le DataFrame a été pré-traité. Les noms de colonnes et données n'ont plus d'accents. Retire les accents dans la valeur de tes filtres.
+6. Donne UNIQUEMENT le code, sans explications."""
         
-        # On place le prompt système au tout début, suivi de l'historique envoyé par Streamlit
         messages_pour_ollama = [{"role": "system", "content": system_prompt}] + requete.messages
 
-        # 2. Création du générateur (Streaming)
         def stream_generator():
-            # Appel direct à ton modèle local
             for chunk in inferring_ollama(
                 messages=messages_pour_ollama,
                 model=requete.modele,
                 temperature=requete.temperature,
                 stream=True,
                 context_size=requete.context_size,
-                max_tokens=800  # Limite les tokens générés pour le code
+                max_tokens=800 
             ):
                 yield chunk
             
-        # 3. Renvoi des données en temps réel à Streamlit
         return StreamingResponse(stream_generator(), media_type="text/plain")
     except Exception as e:
         print(f"Erreur backend lors de la rédaction par llm : {str(e)}")
         elapsed = time.time() - start_time
 
 
-@app.post("/ajouter_au_savoir_csv")
-async def ajouter_au_savoir_csv(file: UploadFile = File(...), session_id: str = Form("default")):
-    """Reçoit un fichier csv, crée la base chroma_db et la sauvegarde."""
-    try:
-        # Création d'un fichier physique temporaire pour le CSVLoader
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_file:
-            shutil.copyfileobj(file.file, temp_file)
-            temp_file_path = temp_file.name
-
-        # Appel à csv_rag.py avec session_id
-        nombre_docs = process_csv_file(temp_file_path, session_id)
-        
-        # Nettoyage
-        os.remove(temp_file_path)
-
-        # On retourne une réponse JSON propre
-        return {"statut": "succès", "documents_ajoutes": nombre_docs, "session_id": session_id}
-
-    except Exception as e:
-        print(f"Erreur : {str(e)}")
-        return {"erreur": str(e)}
-    
 
 class SessionRequest(BaseModel):
     session_id: str = "default"
 
 
-@app.post("/cleanup_csv_session")
-async def cleanup_csv_session(request: SessionRequest):
-    """Supprime la collection CSV associée à une session utilisateur."""
-    delete_csv_session(request.session_id)
-    return {"statut": "supprimé", "session_id": request.session_id}
 
 
 # ==========================================
@@ -378,35 +338,45 @@ async def cleanup_csv_session(request: SessionRequest):
 async def generer_chat_csv_rag(requete: ChatRequest_csv):
     """Fouille dans ChromaDB pour discuter du contenu textuel du CSV."""
     try:
-
         try:
-            # On récupère la collection pour cette session (client en mémoire)
-            client = get_csv_client(requete.session_id)
-            session_collection_name = get_csv_collection_name(requete.session_id)
-            collection = client.get_collection(session_collection_name)
+            # On récupère le client en mémoire
+            client = xlsx_parser.get_csv_client(requete.session_id)
+            session_collection_name = xlsx_parser.get_csv_collection_name(requete.session_id)
+            
+            # Vérification si la collection existe nativement
+            collection_native = client.get_collection(session_collection_name)
         except ValueError:
             # Si get_collection échoue, c'est que la base est vide
             def erreur_stream():
-                yield "❌ La base de données est vide. Veuillez charger un CSV pour cette session."
+                yield "❌ La base de données est vide. Veuillez indexer le fichier avant de poser une question."
             return StreamingResponse(erreur_stream(), media_type="text/plain")
 
-        # 1. On récupère la dernière question
-        derniere_question = requete.messages[-1]["content"]
-        
-        # 2. Recherche native
-        resultats = collection.query(
-            query_texts=[derniere_question],
-            n_results=5
+        # 1. Reconnexion de LangChain à la base existante
+        # (N'oubliez pas l'URL forcée qui nous a sauvé tout à l'heure !)
+        embeddings = OllamaEmbeddings(
+            model="embeddinggemma",
+            base_url=URL_OLLAMA
         )
         
-        # 3. Extraction du texte
-        if resultats and resultats["documents"] and len(resultats["documents"]) > 0:
-            textes_trouves = resultats["documents"][0]
-            contexte_extrait = "\n\n---\n\n".join(textes_trouves)
+        vectorstore = Chroma(
+            client=client,
+            collection_name=session_collection_name,
+            embedding_function=embeddings
+        )
+
+        # 2. On récupère la dernière question
+        derniere_question = requete.messages[-1]["content"]
+        
+        # 3. Recherche via LangChain (similarity_search)
+        resultats_docs = vectorstore.similarity_search(derniere_question, k=5)
+        
+        # Extraction du texte des documents LangChain
+        if resultats_docs:
+            contexte_extrait = "\n\n---\n\n".join([doc.page_content for doc in resultats_docs])
         else:
             contexte_extrait = "Je n'ai rien trouvé d'utile dans le document."
 
-        # 4. Création du Prompt Système
+        # 4. Création du Prompt Système (inchangé, c'est parfait)
         system_prompt = f"""Tu es un assistant expert pour analyser un document.
 Ton but est de répondre aux questions de l'utilisateur de manière naturelle et conversationnelle.
 
@@ -420,7 +390,7 @@ RÈGLES :
 
         messages_pour_ollama = [{"role": "system", "content": system_prompt}] + requete.messages
 
-        # 5. Appel au LLM en streaming
+        # 5. Appel au LLM en streaming (inchangé)
         def stream_generator():
             for chunk in inferring_ollama(
                 messages=messages_pour_ollama,
@@ -435,66 +405,77 @@ RÈGLES :
         return StreamingResponse(stream_generator(), media_type="text/plain")
 
     except Exception as e:
-            # 1. On sauvegarde l'erreur sous forme de texte tout de suite
             message_erreur = str(e) 
             print(f"Erreur backend RAG : {message_erreur}")
             
-            # 2. Le générateur utilise le texte sauvegardé, et non la variable 'e'
             def erreur_fatale():
                 yield f"❌ Erreur critique lors de la discussion : {message_erreur}"
                 
             return StreamingResponse(erreur_fatale(), media_type="text/plain")
     
+   
 
 
-
-@app.post("/parse_excel")
+@app.post("/parse_every_tab_excel")
 async def parse_excel_route(
     file: UploadFile = File(...),
     sheet_name: str = Query("Sheet1")
 ):
-    """
-    Parse un Excel et retourne UN tableau spécifique.
-    """
     try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name=sheet_name)
+        # 1. Read the uploaded file into memory
+        contents = await file.read()
+        
+        # 2. Wrap it in a BytesIO object (this gives openpyxl the 'seekable' attribute it needs)
+        excel_data = io.BytesIO(contents)
+        
+        # 3. Pass the BytesIO object instead of file.file
+        tableaux = xlsx_parser.find_tables_in_sheet(excel_data, sheet_name=sheet_name)
         
         if not tableaux:
             return {"status": "error", "message": "Aucun tableau trouvé"}
         
-        # Retourne le premier tableau détecté
-        df = tableaux[0]["dataframe"]
+        # 4. Convert the list of tuples into a clean list of JSON objects (from the previous fix)
+        formatted_tableaux = [
+            {"titre": title, "donnees": data} 
+            for title, data in tableaux
+        ]
         
         return {
             "status": "success",
             "nom_fichier": file.filename,
-            "tableau": df.to_dict(orient="records"),  # ← format JSON
-            "colonnes": list(df.columns),
-            "shape": df.shape
+            "tableau": formatted_tableaux
         }
     
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
 
-@app.post("/get_tableau")
-async def get_tableau(file: UploadFile = File(...), tableau_idx: int = 0):
-    """
-    Récupère un tableau spécifique en tant que CSV/JSON.
-    """
+
+@app.post("/knowledge_graphe")
+async def knowledge_graphe(request: KnowledgeRequest):
+    """Reçoit les tableaux extraits au format JSON, crée la base chroma_db et la sauvegarde."""
     try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name="Sheet1")
+        # 1. Convertir la liste de dictionnaires JSON en liste de tuples 
+        # pour être compatible avec robuster.prepare_rag_documents()
+        tables_for_robuster = [
+            (tab.get("titre", "Sans titre"), tab.get("donnees", [])) 
+            for tab in request.tableaux
+        ]
+
+        # 2. Préparation des documents RAG (conversion en DataFrame puis Markdown)
+        docs = xlsx_parser.prepare_rag_documents(tables_for_robuster)
+
+        # 3. Création du Vector Store (On passe bien le session_id à la fonction !)
+        #robuster.create_vector_store(docs, request.session_id, embeddings)
+        vector_index = xlsx_parser.create_vector_store(docs, request.session_id)
         
-        if tableau_idx >= len(tableaux):
-            return {"status": "error", "message": f"Tableau {tableau_idx} inexistant"}
+        msg = f"{len(docs)} document(s) indexé(s) — base vectorielle prête !"
+        print(msg)
         
-        df = tableaux[tableau_idx]["dataframe"]
-        
-        return {
-            "status": "success",
-            "tableau": df.to_dict(orient="records"),
-            "nom": tableaux[tableau_idx]["nom"]
-        }
-    
+        # On s'assure de renvoyer le statut attendu par le front ("succès")
+        return {"statut": "succès", "message": msg}
+
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Erreur lors de l'indexation : {str(e)}")
+        # On renvoie aussi un statut d'erreur explicite
+        return {"statut": "erreur", "erreur": str(e)}

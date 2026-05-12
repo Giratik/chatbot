@@ -6,11 +6,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: chatbot-backend
-    #volumes:
+    volumes:
       #- ./backend:/app
       #- ./chroma_db:/app/chroma_db  # Pour stocker la base de données Chroma de manière persistante
      # - ./_rag_base:/app/_rag_base  # Pour stocker les CSV et autres ressources du RAG
      # (Tu peux aussi faire du bind mount sur des dossiers spécifiques à l'intérieur du conteneur si tu préfères)
+     - /home/paulvidouze/.cache/huggingface:/root/.cache/huggingface
     ports:
       - "8000:8000"
     environment:
@@ -19,7 +20,10 @@ services:
       #- DEFAULT_LLM=mistral:latest
       - CONTEXT_SIZE=12288
       - TEMPERATURE=0.4
-      - DEFAULT_LLM=ministral-3:14b
+      - DEFAULT_LLM=gemma4:e4b
+      - TRANSFORMERS_OFFLINE=1
+      - HF_DATASETS_OFFLINE=1
+      - HF_HOME=/root/.cache/huggingface
     deploy:
       resources:
         limits:
@@ -49,9 +53,9 @@ services:
       - STREAMLIT_BROWSER_SERVER_ADDRESS=10.75.12.5
       - CONTEXT_SIZE=12288
       - TEMPERATURE=0.4
-      - DEFAULT_LLM=ministral-3:14b
-      - DEFAULT_VLM=ministral-3:14b
-      - PAYLOAD_DEBUG=show
+      - DEFAULT_LLM=gemma4:e4b 
+      - DEFAULT_VLM=gemma4:e4b 
+      - PAYLOAD_DEBUG=hide
     depends_on:
       - backend
     #networks:

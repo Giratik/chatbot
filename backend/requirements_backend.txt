@@ -11,15 +11,20 @@ pydantic==2.12.5
 pydantic_core==2.41.5
 annotated-types==0.7.0
 typing_extensions==4.15.0
-spacy>=3.7.0,<4.0.0
 ## Monitoring & Metrics
 #prometheus-client>=0.19.0
 #prometheus-fastapi-instrumentator>=6.1.0
 
+# ⚡ Data Processing (optimisé pour Excel)
+# Polars est 10-100x plus rapide que pandas pour les gros fichiers Excel
+polars==1.22.0
+pyarrow==18.1.0  # Moteur de parsing ultra-rapide pour polars
+openpyxl==3.1.5  # Fallback si polars n'est pas disponible
+
 # Traitement de fichiers et OCR
 pillow==12.2.0
 pdf2image==1.17.0
-pytesseract==0.3.13
+#pytesseract==0.3.13
 filetype==1.2.0
 pdfplumber==0.11.9
 opencv-python
@@ -60,4 +65,13 @@ python-dotenv
 llmlingua==0.2.2
 transformers==5.5.4
 
-openpyxl
+#openpyxl
+
+tabulate
+
+
+python-docx
+python-pptx
+
+
+python-calamine
