@@ -188,7 +188,7 @@ if uploaded_file:
         st.stop()
 #
 else:
-    st.info("📌 Veuillez charger un fichier Excel dans la barre latérale pour commencer.")
+    st.info("📌 Veuillez charger un fichier CSV ou Excel dans la barre latérale pour commencer.")
     st.stop()
 #
 #

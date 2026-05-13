@@ -81,57 +81,31 @@ def extract_table_with_strict_bounds(sheet, start_row, start_col, visited):
 # ---------------------------------------------------------------------------
 # Détection des tableaux dans une feuille Excel
 # ---------------------------------------------------------------------------
-
-def detecter_blocs_continus(df):
-    """Compte le nombre de blocs de données séparés par des lignes vides."""
-    if df.empty:
-        return 0
-    lignes_vides = df.isnull().all(axis=1)
-    groupes = (lignes_vides != lignes_vides.shift()).cumsum()
-    return (~lignes_vides).groupby(groupes).any().sum()
-
-
+ 
 def find_tables_in_sheet(uploaded_file, sheet_name):
-    # --- 1. LECTURE RAPIDE (PANDAS/CALAMINE) ---
-    try:
-        if hasattr(uploaded_file, 'seek'):
-            uploaded_file.seek(0)
-            
-        # Utilisation de calamine pour une vitesse extrême
-        df_complet = pd.read_excel(uploaded_file, sheet_name=sheet_name, engine="calamine")
-        nb_blocs = detecter_blocs_continus(df_complet)
-        
-        if nb_blocs == 1:
-            print("⚡ Un seul tableau détecté. Extraction instantanée !")
-            df_propre = df_complet.dropna(how='all', axis=0).dropna(how='all', axis=1)
-            df_propre = df_propre.where(pd.notnull(df_propre), None)
-            # Ajout des en-têtes comme première ligne
-            table_data = [df_propre.columns.tolist()] + df_propre.values.tolist()
-            return [(sheet_name, table_data)]
-            
-    except Exception as e:
-        print(f"⚠️ Échec de la lecture rapide, fallback sur Openpyxl : {e}")
-
-    # --- 2. FALLBACK SUR OPENPYXL (Tableaux multiples ou complexes) ---
-    print("🔄 Bascule sur Openpyxl (Analyse spatiale)...")
-    if hasattr(uploaded_file, 'seek'):
-        uploaded_file.seek(0)
-        
+    """
+    Détecte automatiquement tous les tableaux dans une feuille Excel.
+    Retourne une liste de tuples (titre, donnees_brutes).
+    """
     wb = openpyxl.load_workbook(uploaded_file, data_only=True)
     tables_found = []
     
     if sheet_name:
         sheet = wb[sheet_name]
+ 
         visited = set()
+ 
+        # Parcours de la grille de la feuille sélectionnée
         for r in range(1, sheet.max_row + 1):
             for c in range(1, sheet.max_column + 1):
                 if (r, c) not in visited and sheet.cell(row=r, column=c).value is not None:
                     data, title, visited = extract_table_with_strict_bounds(sheet, r, c, visited)
                     if data and len(data) > 1:
                         tables_found.append((title, data))
-    
+        
     wb.close()
     return tables_found
+ 
  
 # ---------------------------------------------------------------------------
 # Préparation des documents RAG
@@ -260,5 +234,3 @@ def create_vector_store(raw_data_list: List[Dict[str, pd.DataFrame]], session_id
     
     print(f"✅ VectorStore créé : {len(documents)} documents indexés")
     return vectorstore
-
-
