@@ -32,3 +32,4 @@ backend/metrics.py
 _rag_base/
 /frontend
 chroma_db/
+DOCKLING/

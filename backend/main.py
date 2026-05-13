@@ -1,8 +1,9 @@
+#backend/main.py
+
 import json
 import shutil
 import tempfile
-
-
+import traceback
 
 from fastapi import FastAPI, UploadFile, File, Form, Query, APIRouter, Body
 from fastapi.responses import StreamingResponse
@@ -25,24 +26,20 @@ from langchain_community.embeddings import OllamaEmbeddings
 # Import de tes fonctions locales existantes
 from ollama_client import inferring_ollama
 from file_type_action import analyser_contenu_fichier
-from csv_rag import process_csv_file, get_csv_collection_name, delete_csv_session, get_csv_client
-from newer_rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
-from traitement_long_fichier import identification_cas, map_reducing
-from excel_parser_robust import find_tables_in_sheet
-import robuster
+from rag_engine import remplir_database_chroma, recherche_lexique, recherche_depuis_texte, get_collection
+import new_xlsx_parser
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
-# Fichier: backend/prompts.py
 
 SYSTEM_PROMPT = """
 Tu es "EDP-IA", l'assistant IA officiel de l'entreprise Eau de Paris. 
 
 --- TON IDENTITÉ ET TON RÔLE ---
 * Tu es un expert technique, professionnel, mais toujours amical et concis.
-* Ton but est d'aider les utilisateurs de EDP à analyser leurs documents et à répondre à leurs questions.
+* Ton but est d'aider les salariés de EDP à analyser leurs documents et à répondre à leurs questions.
 * Tu ne dois jamais inventer d'informations (pas d'hallucinations). Si tu ne sais pas, dis-le simplement.
 
 --- TES CONNAISSANCES DE BASE ---
@@ -167,7 +164,6 @@ async def traiter_fichier(file: UploadFile = File(...), modele: str = Form(...))
         return {"erreur": str(e)}
     #finally:
     #    active_sessions.dec()
-
 
 
 # --- ROUTE 2 : GÉNÉRATION DU CHAT (STREAMING) ---
@@ -327,38 +323,11 @@ RÈGLES STRICTES :
         elapsed = time.time() - start_time
 
 
-@app.post("/ajouter_au_savoir_csv")
-async def ajouter_au_savoir_csv(file: UploadFile = File(...), session_id: str = Form("default")):
-    """Reçoit un fichier csv, crée la base chroma_db et la sauvegarde."""
-    try:
-        # Création d'un fichier physique temporaire pour le CSVLoader
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_file:
-            shutil.copyfileobj(file.file, temp_file)
-            temp_file_path = temp_file.name
-
-        # Appel à csv_rag.py avec session_id
-        nombre_docs = process_csv_file(temp_file_path, session_id)
-        
-        # Nettoyage
-        os.remove(temp_file_path)
-
-        # On retourne une réponse JSON propre
-        return {"statut": "succès", "documents_ajoutes": nombre_docs, "session_id": session_id}
-
-    except Exception as e:
-        print(f"Erreur : {str(e)}")
-        return {"erreur": str(e)}
-    
 
 class SessionRequest(BaseModel):
     session_id: str = "default"
 
 
-@app.post("/cleanup_csv_session")
-async def cleanup_csv_session(request: SessionRequest):
-    """Supprime la collection CSV associée à une session utilisateur."""
-    delete_csv_session(request.session_id)
-    return {"statut": "supprimé", "session_id": request.session_id}
 
 
 # ==========================================
@@ -370,8 +339,8 @@ async def generer_chat_csv_rag(requete: ChatRequest_csv):
     try:
         try:
             # On récupère le client en mémoire
-            client = robuster.get_csv_client(requete.session_id)
-            session_collection_name = robuster.get_csv_collection_name(requete.session_id)
+            client = new_xlsx_parser.get_csv_client(requete.session_id)
+            session_collection_name = new_xlsx_parser.get_csv_collection_name(requete.session_id)
             
             # Vérification si la collection existe nativement
             collection_native = client.get_collection(session_collection_name)
@@ -384,7 +353,7 @@ async def generer_chat_csv_rag(requete: ChatRequest_csv):
         # 1. Reconnexion de LangChain à la base existante
         # (N'oubliez pas l'URL forcée qui nous a sauvé tout à l'heure !)
         embeddings = OllamaEmbeddings(
-            model="qwen3-embedding:0.6b",
+            model="embeddinggemma",
             base_url=URL_OLLAMA
         )
         
@@ -443,60 +412,7 @@ RÈGLES :
                 
             return StreamingResponse(erreur_fatale(), media_type="text/plain")
     
-
-
-
-@app.post("/parse_excel")
-async def parse_excel_route(
-    file: UploadFile = File(...),
-    sheet_name: str = Query("Sheet1")
-):
-    """
-    Parse un Excel et retourne UN tableau spécifique.
-    """
-    try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name=sheet_name)
-        
-        if not tableaux:
-            return {"status": "error", "message": "Aucun tableau trouvé"}
-        
-        # Retourne le premier tableau détecté
-        df = tableaux[0]["dataframe"]
-        
-        return {
-            "status": "success",
-            "nom_fichier": file.filename,
-            "tableau": df.to_dict(orient="records"),  # ← format JSON
-            "colonnes": list(df.columns),
-            "shape": df.shape
-        }
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    
-
-@app.post("/get_tableau")
-async def get_tableau(file: UploadFile = File(...), tableau_idx: int = 0):
-    """
-    Récupère un tableau spécifique en tant que CSV/JSON.
-    """
-    try:
-        tableaux = find_tables_in_sheet(file.file, sheet_name="Sheet1")
-        
-        if tableau_idx >= len(tableaux):
-            return {"status": "error", "message": f"Tableau {tableau_idx} inexistant"}
-        
-        df = tableaux[tableau_idx]["dataframe"]
-        
-        return {
-            "status": "success",
-            "tableau": df.to_dict(orient="records"),
-            "nom": tableaux[tableau_idx]["nom"]
-        }
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    
+   
 
 
 @app.post("/parse_every_tab_excel")
@@ -511,17 +427,29 @@ async def parse_excel_route(
         # 2. Wrap it in a BytesIO object (this gives openpyxl the 'seekable' attribute it needs)
         excel_data = io.BytesIO(contents)
         
-        # 3. Pass the BytesIO object instead of file.file
-        tableaux = robuster.find_tables_in_sheet(excel_data, sheet_name=sheet_name)
+        # 3. Pass the BytesIO object to the new Polars-based parser
+        tableaux = new_xlsx_parser.find_tables_in_sheet(excel_data, sheet_name=sheet_name)
         
         if not tableaux:
             return {"status": "error", "message": "Aucun tableau trouvé"}
         
-        # 4. Convert the list of tuples into a clean list of JSON objects (from the previous fix)
-        formatted_tableaux = [
-            {"titre": title, "donnees": data} 
-            for title, data in tableaux
-        ]
+        # 4. Convert the list of tuples (title, pl.DataFrame) into a clean list of JSON objects
+        # We convert Polars DataFrames back to lists of lists for compatibility
+        formatted_tableaux = []
+        for title, df_polars in tableaux:
+            # Convert Polars DataFrame to list of lists
+            headers = df_polars.columns
+            data_rows = df_polars.to_dicts()
+            
+            # Build the expected format: list where first element is headers, then data
+            table_data = [list(headers)]
+            for row_dict in data_rows:
+                table_data.append([row_dict.get(col) for col in headers])
+            
+            formatted_tableaux.append({
+                "titre": title or "Sans titre",
+                "donnees": table_data
+            })
         
         return {
             "status": "success",
@@ -539,18 +467,17 @@ async def knowledge_graphe(request: KnowledgeRequest):
     """Reçoit les tableaux extraits au format JSON, crée la base chroma_db et la sauvegarde."""
     try:
         # 1. Convertir la liste de dictionnaires JSON en liste de tuples 
-        # pour être compatible avec robuster.prepare_rag_documents()
-        tables_for_robuster = [
+        # pour être compatible avec prepare_rag_documents()
+        tables_for_rag = [
             (tab.get("titre", "Sans titre"), tab.get("donnees", [])) 
             for tab in request.tableaux
         ]
 
-        # 2. Préparation des documents RAG (conversion en DataFrame puis Markdown)
-        docs = robuster.prepare_rag_documents(tables_for_robuster)
+        # 2. Préparation des documents RAG (conversion en DataFrame Polars puis Markdown)
+        docs = new_xlsx_parser.prepare_rag_documents(tables_for_rag)
 
-        # 3. Création du Vector Store (On passe bien le session_id à la fonction !)
-        #robuster.create_vector_store(docs, request.session_id, embeddings)
-        vector_index = robuster.create_vector_store(docs, request.session_id)
+        # 3. Création du Vector Store (Version avec compatibilité mémoire pour les requêtes RAG)
+        vector_index = new_xlsx_parser.create_vector_store_legacy(docs, request.session_id)
         
         msg = f"{len(docs)} document(s) indexé(s) — base vectorielle prête !"
         print(msg)
@@ -561,4 +488,4 @@ async def knowledge_graphe(request: KnowledgeRequest):
     except Exception as e:
         print(f"Erreur lors de l'indexation : {str(e)}")
         # On renvoie aussi un statut d'erreur explicite
-        return {"statut": "erreur", "erreur": str(e)}
+        return {"statut": "erreur", "message": str(e), "traceback": traceback.format_exc()}
