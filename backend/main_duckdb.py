@@ -21,7 +21,6 @@ from rag_engine import remplir_database_chroma, recherche_lexique, recherche_dep
 
 # Nouveau module DuckDB (remplace new_xlsx_parser)
 import duckdb_session as ddb
-import duckdb as duckdb
 
 CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -51,23 +50,17 @@ Tu as accès à une base DuckDB in-memory avec les tables suivantes :
 
 {schema}
 
-Selon la question de l'utilisateur, adopte le bon comportement :
-
-CAS 1 — Question descriptive, analytique ou conversationnelle
-(ex: "que représente ce tableau", "décris les données", "quelles colonnes as-tu")
-→ Réponds en français, en langage naturel, en Markdown.
-→ Ne génère PAS de SQL.
-
-CAS 2 — Demande de calcul, agrégation, filtre ou graphique
-(ex: "fais un graphique", "donne-moi le total par région", "filtre les lignes > 100")
-→ Génère UNIQUEMENT un bloc SQL DuckDB valide entre ```sql et ```.
-→ Pour un graphique, ajoute ces commentaires AVANT le SELECT :
+RÈGLES STRICTES :
+1. Réponds UNIQUEMENT avec du SQL DuckDB valide, entouré de ```sql et ```.
+2. Utilise EXACTEMENT les noms de tables et de colonnes fournis ci-dessus.
+3. Pour une question texte/résumé : génère un SELECT adapté.
+4. Pour un graphe : génère un SELECT avec les colonnes nécessaires et ajoute un commentaire
    -- CHART_TYPE: bar|line|pie|scatter
    -- CHART_X: nom_colonne_x
    -- CHART_Y: nom_colonne_y
    -- CHART_TITLE: titre lisible
-→ Utilise EXACTEMENT les noms de tables et colonnes fournis ci-dessus.
-→ Ne génère jamais de code Python.
+5. Ne génère jamais de code Python. Uniquement du SQL.
+6. Si la question est impossible à répondre avec les données disponibles, dis-le clairement en français (sans SQL).
 """
 
 
@@ -256,141 +249,23 @@ async def parse_excel(
 
 @app.post("/chat_data_analyst")
 async def chat_data_analyst(requete: ChatRequest_csv):
+    """
+    Assistant data analyst : le LLM génère du SQL DuckDB à partir du schéma.
+    Le SQL est retourné en streaming, exécuté par /execute_sql côté client
+    ou directement ici selon le besoin.
+
+    Remplace : /chat_data_analyst (Polars codegen) + /chat_csv_rag (ChromaDB)
+    """
     try:
         session = ddb.registry.get_or_raise(requete.session_id)
         schema = session.build_schema_prompt()
 
-        # Étape 1 : LLM génère le SQL
-        # Étape 1a : routing — quelle table est pertinente ?
-        system_routing = f"""Tu es un assistant qui identifie dans quelle table chercher une information.
+        system_prompt = SYSTEM_PROMPT_DATA_ANALYST.format(schema=schema)
+        messages_pour_ollama = [{"role": "system", "content": system_prompt}] + requete.messages
 
-        Tables disponibles :
-        {schema}
-
-        Réponds UNIQUEMENT avec le ou les noms de tables SQL pertinentes, séparés par des virgules.
-        Exemple : tableau_2
-        Exemple : tableau_1, tableau_2
-        Si tu ne sais pas, liste toutes les tables."""
-
-        routing_response = ""
-        for chunk in inferring_ollama(
-            messages=[
-                {"role": "system", "content": system_routing},
-                {"role": "user", "content": requete.messages[-1]["content"]}
-            ],
-            model=requete.modele,
-            temperature=0.0,
-            stream=True,
-            context_size=requete.context_size,
-            max_tokens=50,  # court, juste un nom de table
-        ):
-            routing_response += chunk
-
-        tables_cibles = routing_response.strip()
-
-        # Étape 1b : génération SQL avec le focus sur les bonnes tables
-        system_sql = f"""Tu es un expert SQL DuckDB. Tu as accès aux tables suivantes :
-
-        {schema}
-
-        La question porte probablement sur : {tables_cibles}
-
-        RÈGLES :
-        - Pour une question descriptive ("c'est quoi", "que contient", "décris"), génère :
-        SELECT * FROM table LIMIT 5
-        ET ajoute en commentaire : -- TOTAL_COUNT: (SELECT COUNT(*) FROM table)
-        - Pour une agrégation ou filtre ciblé, pas de LIMIT.
-        - Pour les recherches textuelles, utilise ILIKE '%valeur%'.
-        - Génère UNIQUEMENT un bloc ```sql ... ```, rien d'autre."""
-
-        messages_sql = [{"role": "system", "content": system_sql}] + requete.messages
-
-        # Collecte la réponse SQL complète (pas de streaming ici, on a besoin du texte entier)
-        sql_response = ""
-        for chunk in inferring_ollama(
-            messages=messages_sql,
-            model=requete.modele,
-            temperature=0.1,  # température basse pour le SQL
-            stream=True,
-            context_size=requete.context_size,
-            max_tokens=400,
-        ):
-            sql_response += chunk
-
-        # Étape 2 : extraction et exécution du SQL
-        import re
-        sql_match = re.search(r"```sql\n(.*?)\n```", sql_response, re.DOTALL)
-        
-        data_context = ""
-        chart_meta = sql_response  # on passera la réponse brute pour les CHART_*
-
-        if sql_match:
-            lignes = [l for l in sql_match.group(1).splitlines() if not l.strip().startswith("--")]
-            sql_pur = "\n".join(lignes).strip()
-
-            try:
-                df_result = session.query(sql_pur)
-                
-                # Récupère le COUNT réel si c'est un SELECT * limité
-                total_rows = len(df_result)
-                is_partial = "LIMIT" in sql_pur.upper()
-                
-                if is_partial:
-                    # Extrait le nom de table pour compter le total réel
-                    table_match = re.search(r"FROM\s+(\w+)", sql_pur, re.IGNORECASE)
-                    if table_match:
-                        table_name = table_match.group(1)
-                        try:
-                            count_result = session.query(f"SELECT COUNT(*) as n FROM {table_name}")
-                            total_rows = count_result.row(0)[0]
-                        except Exception:
-                            pass
-
-                apercu = df_result.to_pandas().to_markdown(index=False)
-
-                if is_partial:
-                    data_context = (
-                        f"Le tableau contient {total_rows} lignes au total.\n"
-                        f"Voici un aperçu des {len(df_result)} premières lignes :\n{apercu}\n\n"
-                        f"Pour décrire le tableau, base-toi sur les colonnes et cet aperçu. "
-                        f"Précise bien que le tableau fait {total_rows} lignes au total."
-                    )
-                else:
-                    data_context = f"Résultat complet ({total_rows} lignes) :\n{apercu}"
-
-            except Exception as e:
-                data_context = f"Erreur SQL : {e}"
-        else:
-            # Pas de SQL → réponse textuelle directe, on la stream
-            def stream_direct():
-                yield sql_response
-            return StreamingResponse(stream_direct(), media_type="text/plain")
-
-        # Étape 3 : LLM synthétise avec les vraies données
-        system_synthese = f"""Tu es EDP-IA, assistant de Eau de Paris.
-Tu viens d'exécuter une requête sur les données Excel de l'utilisateur.
-Voici les données retournées :
-
-{data_context}
-
-Réponds en français, de manière claire et concise, en te basant UNIQUEMENT sur ces données.
-Ne mentionne pas SQL. Parle directement des résultats comme si tu les avais trouvés toi-même.
-Si le résultat est vide, dis-le simplement et propose de reformuler."""
-
-        messages_synthese = [{"role": "system", "content": system_synthese}] + requete.messages
-
-        def stream_synthese():
-            # On préfixe avec les métadonnées graphe si présentes pour que le frontend puisse les parser
-            if sql_match:
-                commentaires = "\n".join(
-                    l for l in sql_match.group(1).splitlines() 
-                    if l.strip().startswith("--")
-                )
-                if commentaires:
-                    yield f"```sql\n{commentaires}\n{sql_pur}\n```\n"
-            
+        def stream_generator():
             for chunk in inferring_ollama(
-                messages=messages_synthese,
+                messages=messages_pour_ollama,
                 model=requete.modele,
                 temperature=requete.temperature,
                 stream=True,
@@ -399,12 +274,17 @@ Si le résultat est vide, dis-le simplement et propose de reformuler."""
             ):
                 yield chunk
 
-        return StreamingResponse(stream_synthese(), media_type="text/plain")
+        return StreamingResponse(stream_generator(), media_type="text/plain")
 
     except ValueError as e:
-        def err():
-            yield f"❌ {e}"
-        return StreamingResponse(err(), media_type="text/plain")
+        def erreur_stream():
+            yield f"❌ {str(e)}"
+        return StreamingResponse(erreur_stream(), media_type="text/plain")
+    except Exception as e:
+        print(f"Erreur /chat_data_analyst : {traceback.format_exc()}")
+        def erreur_stream():
+            yield f"❌ Erreur inattendue : {str(e)}"
+        return StreamingResponse(erreur_stream(), media_type="text/plain")
 
 
 @app.post("/execute_sql")

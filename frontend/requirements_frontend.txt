@@ -1,3 +1,5 @@
+#frontend/requirements_frontend.py
+
 # Framework UI
 streamlit==1.56.0
 watchdog==6.0.0

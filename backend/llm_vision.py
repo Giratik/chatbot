@@ -8,7 +8,7 @@ import time
 
 # Utilise la même variable d'env que ollama_client.py
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
+#CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 client = Client(
     host=URL_OLLAMA,
     timeout=httpx.Timeout(
@@ -39,7 +39,7 @@ def analyse_image(image_bytes, prompt, model):
             model=model,
             options={
                 "temperature": 0.4,
-                "num_ctx":CONTEXT_SIZE,
+                "num_ctx":12288,
             },
             messages=[
                 {

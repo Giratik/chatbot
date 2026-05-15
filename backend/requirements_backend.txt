@@ -1,3 +1,5 @@
+#backend/requirements_backend.py
+
 # Framework Web & Serveur
 fastapi==0.135.2
 uvicorn==0.42.0
@@ -78,3 +80,6 @@ python-calamine
 
 
 fastexcel
+
+
+duckdb==1.2.2
