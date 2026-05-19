@@ -13,6 +13,7 @@ import os
 import time
 import threading
 import chromadb
+import re
 
 # Imports locaux existants (inchangés)
 from ollama_client import inferring_ollama
@@ -32,17 +33,17 @@ Tu es "EDP-IA", l'assistant IA officiel de l'entreprise Eau de Paris.
 
 --- TON IDENTITÉ ET TON RÔLE ---
 * Tu es un expert technique, professionnel, mais toujours amical et concis.
-* Ton but est d'aider les salariés de EDP à analyser leurs documents et à répondre à leurs questions.
+* Tu es utilisé exclusivement par les salariés de Eau de Paris.
+* Ton but est de répondre au mieux à leurs questions générales ainsi que leur demandes concernant des fichiers qu'ils joindront. 
 * Tu ne dois jamais inventer d'informations (pas d'hallucinations). Si tu ne sais pas, dis-le simplement.
-
---- TES CONNAISSANCES DE BASE ---
-* L'entreprise se spécialise dans la distribution de l'eau dans la ville de Paris.
 
 --- RÈGLES DE FORMATAGE ---
 * Réponds toujours en français.
 * Utilise le format Markdown pour structurer tes réponses (listes à puces, texte en gras pour mettre en évidence les éléments clés).
 * Ne sois pas trop bavard : va droit au but.
 * Répond avec un minimum de déférence.
+* Ne donne pas de conseils non demandés par l'utilisateur. écrit ta réponse et rien d'autre.
+* L'utilisateur travaille chez Eau de Paris et à conscience que tu es un outil de Eau de Paris, rapelle le lui quand-même s'il demande ton identité.
 """
 
 SYSTEM_PROMPT_DATA_ANALYST = """
@@ -96,6 +97,7 @@ class ChatRequest_csv(BaseModel):
     temperature: float
     context_size: int
     session_id: str = "default"
+    mode: str = "discussion"  # "discussion" ou "graphique"
 
 class SqlRequest(BaseModel):
     sql: str
@@ -259,18 +261,13 @@ async def chat_data_analyst(requete: ChatRequest_csv):
     try:
         session = ddb.registry.get_or_raise(requete.session_id)
         schema = session.build_schema_prompt()
+        is_graphique = requete.mode == "graphique"
 
-        # Étape 1 : LLM génère le SQL
-        # Étape 1a : routing — quelle table est pertinente ?
-        system_routing = f"""Tu es un assistant qui identifie dans quelle table chercher une information.
-
-        Tables disponibles :
-        {schema}
-
-        Réponds UNIQUEMENT avec le ou les noms de tables SQL pertinentes, séparés par des virgules.
-        Exemple : tableau_2
-        Exemple : tableau_1, tableau_2
-        Si tu ne sais pas, liste toutes les tables."""
+        # ── Étape 1 : routing ──────────────────────────────────────────
+        system_routing = f"""Tu identifies dans quelle(s) table(s) chercher une information.
+Tables disponibles :
+{schema}
+Réponds UNIQUEMENT avec le ou les noms de tables SQL pertinentes, séparés par des virgules."""
 
         routing_response = ""
         for chunk in inferring_ollama(
@@ -278,133 +275,131 @@ async def chat_data_analyst(requete: ChatRequest_csv):
                 {"role": "system", "content": system_routing},
                 {"role": "user", "content": requete.messages[-1]["content"]}
             ],
-            model=requete.modele,
-            temperature=0.0,
-            stream=True,
-            context_size=requete.context_size,
-            max_tokens=50,  # court, juste un nom de table
+            model=requete.modele, temperature=0.0, stream=True,
+            context_size=requete.context_size, max_tokens=50,
         ):
             routing_response += chunk
-
         tables_cibles = routing_response.strip()
 
-        # Étape 1b : génération SQL avec le focus sur les bonnes tables
-        system_sql = f"""Tu es un expert SQL DuckDB. Tu as accès aux tables suivantes :
+        # ── Étape 2 : génération SQL ───────────────────────────────────
+        chart_rules = """
+- Si l'utilisateur demande un graphique, ajoute ces commentaires AVANT le SELECT :
+  -- CHART_TYPE: bar|line|pie|scatter
+  -- CHART_X: colonne_x
+  -- CHART_Y: colonne_y
+  -- CHART_TITLE: titre lisible""" if is_graphique else ""
 
-        {schema}
+        system_sql = f"""Tu es un expert SQL DuckDB.
+Tables disponibles :
+{schema}
+La question porte probablement sur : {tables_cibles}
 
-        La question porte probablement sur : {tables_cibles}
+RÈGLES :
+- Génère TOUJOURS du SQL, même si la question est vague.
+- Pour une question descriptive, génère SELECT * FROM table LIMIT 5.
+- Pour les recherches textuelles, utilise ILIKE '%valeur%'.
+- Plusieurs tables → plusieurs SELECT séparés dans le même bloc.
+{chart_rules}
+- Génère UNIQUEMENT un bloc ```sql ... ```, rien d'autre."""
 
-        RÈGLES :
-        - Pour une question descriptive ("c'est quoi", "que contient", "décris"), génère :
-        SELECT * FROM table LIMIT 5
-        ET ajoute en commentaire : -- TOTAL_COUNT: (SELECT COUNT(*) FROM table)
-        - Pour une agrégation ou filtre ciblé, pas de LIMIT.
-        - Pour les recherches textuelles, utilise ILIKE '%valeur%'.
-        - Génère UNIQUEMENT un bloc ```sql ... ```, rien d'autre."""
-
-        messages_sql = [{"role": "system", "content": system_sql}] + requete.messages
-
-        # Collecte la réponse SQL complète (pas de streaming ici, on a besoin du texte entier)
         sql_response = ""
         for chunk in inferring_ollama(
-            messages=messages_sql,
-            model=requete.modele,
-            temperature=0.1,  # température basse pour le SQL
-            stream=True,
-            context_size=requete.context_size,
-            max_tokens=400,
+            messages=[{"role": "system", "content": system_sql}] + requete.messages,
+            model=requete.modele, temperature=0.1, stream=True,
+            context_size=requete.context_size, max_tokens=400,
         ):
             sql_response += chunk
 
-        # Étape 2 : extraction et exécution du SQL
-        import re
+        # ── Étape 3 : exécution SQL ────────────────────────────────────
         sql_match = re.search(r"```sql\n(.*?)\n```", sql_response, re.DOTALL)
-        
+        chart_comments = ""
+        sql_pur_final = ""
         data_context = ""
-        chart_meta = sql_response  # on passera la réponse brute pour les CHART_*
 
-        if sql_match:
-            lignes = [l for l in sql_match.group(1).splitlines() if not l.strip().startswith("--")]
-            sql_pur = "\n".join(lignes).strip()
-
-            try:
-                df_result = session.query(sql_pur)
-                
-                # Récupère le COUNT réel si c'est un SELECT * limité
-                total_rows = len(df_result)
-                is_partial = "LIMIT" in sql_pur.upper()
-                
-                if is_partial:
-                    # Extrait le nom de table pour compter le total réel
-                    table_match = re.search(r"FROM\s+(\w+)", sql_pur, re.IGNORECASE)
-                    if table_match:
-                        table_name = table_match.group(1)
-                        try:
-                            count_result = session.query(f"SELECT COUNT(*) as n FROM {table_name}")
-                            total_rows = count_result.row(0)[0]
-                        except Exception:
-                            pass
-
-                apercu = df_result.to_pandas().to_markdown(index=False)
-
-                if is_partial:
-                    data_context = (
-                        f"Le tableau contient {total_rows} lignes au total.\n"
-                        f"Voici un aperçu des {len(df_result)} premières lignes :\n{apercu}\n\n"
-                        f"Pour décrire le tableau, base-toi sur les colonnes et cet aperçu. "
-                        f"Précise bien que le tableau fait {total_rows} lignes au total."
-                    )
-                else:
-                    data_context = f"Résultat complet ({total_rows} lignes) :\n{apercu}"
-
-            except Exception as e:
-                data_context = f"Erreur SQL : {e}"
-        else:
-            # Pas de SQL → réponse textuelle directe, on la stream
+        if not sql_match:
             def stream_direct():
                 yield sql_response
             return StreamingResponse(stream_direct(), media_type="text/plain")
 
-        # Étape 3 : LLM synthétise avec les vraies données
+        # Sépare commentaires CHART_* et SQL pur
+        toutes_lignes = sql_match.group(1).splitlines()
+        chart_comments = "\n".join(l for l in toutes_lignes if l.strip().startswith("--"))
+        lignes_sql = [l for l in toutes_lignes if not l.strip().startswith("--")]
+
+        requetes = [r.strip().rstrip(";") for r in re.split(r'(?=SELECT)', "\n".join(lignes_sql), flags=re.IGNORECASE) if r.strip()]
+
+        resultats = []
+        for req in requetes:
+            if not req:
+                continue
+            try:
+                df_r = session.query(req)
+                is_partial = "LIMIT" in req.upper()
+                total_rows = len(df_r)
+
+                if is_partial:
+                    table_match = re.search(r"FROM\s+(\w+)", req, re.IGNORECASE)
+                    if table_match:
+                        try:
+                            count_r = session.query(f"SELECT COUNT(*) as n FROM {table_match.group(1)}")
+                            total_rows = count_r.row(0)[0]
+                        except Exception:
+                            pass
+
+                apercu = df_r.to_pandas().to_markdown(index=False)
+                table_match = re.search(r"FROM\s+(\w+)", req, re.IGNORECASE)
+                nom = table_match.group(1) if table_match else "?"
+                label = f"({total_rows} lignes au total, aperçu {len(df_r)})" if is_partial else f"({total_rows} lignes)"
+                resultats.append(f"**{nom}** {label} :\n{apercu}")
+                sql_pur_final = req  # garde le dernier pour le graphe
+
+            except Exception as e:
+                resultats.append(f"Erreur sur `{req}` : {e}")
+
+        data_context = "\n\n---\n\n".join(resultats) if resultats else "Aucun résultat."
+
+        # ── Étape 4 : synthèse ─────────────────────────────────────────
+        synthese_extra = """
+Si les données sont partielles, dis-le et invite l'utilisateur à poser une question plus ciblée.
+Ne mentionne jamais SQL dans ta réponse."""
+
+        graphique_extra = """
+Si un graphique est demandé, décris brièvement ce que le graphique va montrer.""" if is_graphique else ""
+
         system_synthese = f"""Tu es EDP-IA, assistant de Eau de Paris.
-Tu viens d'exécuter une requête sur les données Excel de l'utilisateur.
-Voici les données retournées :
+Tu viens d'interroger les données Excel de l'utilisateur. Voici les résultats :
 
 {data_context}
 
-Réponds en français, de manière claire et concise, en te basant UNIQUEMENT sur ces données.
-Ne mentionne pas SQL. Parle directement des résultats comme si tu les avais trouvés toi-même.
-Si le résultat est vide, dis-le simplement et propose de reformuler."""
-
-        messages_synthese = [{"role": "system", "content": system_synthese}] + requete.messages
+RÈGLES :
+1. Réponds en français, clairement, en te basant UNIQUEMENT sur ces données.
+2. Ne mentionne jamais SQL dans ta réponse.
+3. Si les données sont partielles, dis-le et invite l'utilisateur à poser une question plus ciblée.
+4. Si l'utilisateur demande un graphique OU si les données s'y prêtent naturellement
+   (comparaison, évolution, répartition), réponds normalement EN TEXTE — 
+   le graphique sera généré automatiquement par le système si les métadonnées CHART_* 
+   sont présentes dans le bloc SQL préfixé."""
 
         def stream_synthese():
-            # On préfixe avec les métadonnées graphe si présentes pour que le frontend puisse les parser
-            if sql_match:
-                commentaires = "\n".join(
-                    l for l in sql_match.group(1).splitlines() 
-                    if l.strip().startswith("--")
-                )
-                if commentaires:
-                    yield f"```sql\n{commentaires}\n{sql_pur}\n```\n"
-            
+            # Préfixe les métadonnées graphe pour le frontend
+            if is_graphique and chart_comments and sql_pur_final:
+                yield f"```sql\n{chart_comments}\n{sql_pur_final}\n```\n"
             for chunk in inferring_ollama(
-                messages=messages_synthese,
-                model=requete.modele,
-                temperature=requete.temperature,
-                stream=True,
-                context_size=requete.context_size,
-                max_tokens=800,
+                messages=[{"role": "system", "content": system_synthese}] + requete.messages,
+                model=requete.modele, temperature=requete.temperature, stream=True,
+                context_size=requete.context_size, max_tokens=800,
             ):
                 yield chunk
 
         return StreamingResponse(stream_synthese(), media_type="text/plain")
 
     except ValueError as e:
-        def err():
-            yield f"❌ {e}"
-        return StreamingResponse(err(), media_type="text/plain")
+            msg = str(e)
+            return StreamingResponse(iter([f"❌ {msg}"]), media_type="text/plain")
+    except Exception as e:
+        msg = str(e)
+        print(f"Erreur /chat_data_analyst : {traceback.format_exc()}")
+        return StreamingResponse(iter([f"❌ Erreur : {msg}"]), media_type="text/plain")
 
 
 @app.post("/execute_sql")

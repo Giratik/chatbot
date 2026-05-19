@@ -228,6 +228,7 @@ class ExcelSession:
                 "dtypes": {col: str(df[col].dtype) for col in df.columns},
                 "n_rows": len(df),
                 "n_cols": len(df.columns),
+                "sample": df.head(3).to_dicts(),  # ← 3 lignes d'exemple
             }
             created.append(table_name)
             print(f"  📊 Table '{table_name}' chargée ({len(df)} lignes × {len(df.columns)} cols)")
@@ -268,10 +269,15 @@ class ExcelSession:
 
         lines = ["Tables disponibles (DuckDB) :\n"]
         for name, meta in self.tables.items():
-            title_info = f" — \"{meta['title']}\"" if meta['title'] != name else ""
-            lines.append(f"  {name}{title_info} ({meta['n_rows']} lignes)")
+            lines.append(f"  {name} ({meta['n_rows']} lignes)")
             for col, dtype in meta["dtypes"].items():
                 lines.append(f"    - {col} : {dtype}")
+            
+            # Quelques valeurs réelles pour que le LLM comprenne le contenu
+            if meta.get("sample"):
+                lines.append(f"    Exemples de lignes :")
+                for row in meta["sample"]:
+                    lines.append(f"      {row}")
             lines.append("")
 
         return "\n".join(lines)
