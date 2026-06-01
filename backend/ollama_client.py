@@ -17,18 +17,24 @@ client = Client(
     )
 )
 
-def inferring_ollama(messages, model, temperature=0.4, stream=False, stats_dict=None, context_size=32768, **kwargs):
+def inferring_ollama(messages, model, temperature=0.4, stream=False, stats_dict=None, context_size=32768, think=False, **kwargs):
     # Appel à l'API avec le paramètre stream
     start = time.time()
     #with llm_latency.time():
+    options = {
+        "temperature": temperature,
+        "num_ctx": context_size,
+        #"num_predict": max_tokens  # Limite les tokens générés
+    }
+    
+    # Ajouter le paramètre think si activé
+    if think:
+        options["think"] = think
+    
     response = client.chat(
         model=model,
         messages=messages,
-        options={
-            "temperature": temperature,
-            "num_ctx": context_size,
-            #"num_predict": max_tokens  # Limite les tokens générés
-        },
+        options=options,
         stream=stream 
     )
     duration = time.time() - start

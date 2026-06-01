@@ -37,6 +37,7 @@ def new_session():
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.messages = []
     st.session_state.processed_files = []
+    st.session_state.think_mode = False
     #st.session_state.nom_fichiers = []
     #st.session_state.contenu_fichiers = []
     #st.instruction_user = ""
@@ -62,6 +63,15 @@ if os.path.exists(LOGO_PATH):
 
 if "session_id" not in st.session_state:
     new_session()
+
+with st.sidebar:
+    st.divider()
+    st.session_state.think_mode = st.toggle(
+        "Mode raisonnement",
+        value=st.session_state.think_mode,
+        help="Active le mode 'raisonnement' des modèles pour une réflexion approfondie"
+    )
+    st.divider()
 
 if st.sidebar.button("Nouvelle session", use_container_width=True):
     reset_and_rerun()
@@ -167,6 +177,7 @@ if user_input :
             "modele": DEFAULT_LLM,
             "temperature": TEMPERATURE,
             "context_size": CONTEXT_SIZE,
+            "think": st.session_state.think_mode,
             #"prompt": prompt
             #"nom_fichiers": nom_fichiers,
             #"contenu_fichiers": contenu_fichiers,

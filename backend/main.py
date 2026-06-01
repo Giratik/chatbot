@@ -90,6 +90,7 @@ class ChatRequest(BaseModel):
     modele: str
     temperature: float
     context_size: int
+    think: bool = False
 
 class ChatRequest_csv(BaseModel):
     messages: List[Dict[str, Any]]
@@ -98,6 +99,7 @@ class ChatRequest_csv(BaseModel):
     context_size: int
     session_id: str = "default"
     mode: str = "discussion"  # "discussion" ou "graphique"
+    think: bool = False
 
 class SqlRequest(BaseModel):
     sql: str
@@ -106,6 +108,50 @@ class SqlRequest(BaseModel):
 class SessionRequest(BaseModel):
     session_id: str = "default"
 
+# ---------------------------------------------------------------------------
+# RH rag
+# ---------------------------------------------------------------------------
+
+class Message(BaseModel):
+    role: str
+    content: str
+
+class RetrieveRequest(BaseModel):
+    collection_name: str
+    query: str
+    model: str
+    n_results: int = 5
+    seuil: float = 0.5
+    alpha: float = 0.5
+    use_hyde: bool = False
+    use_expansion: bool = False
+    use_reranker: bool = True
+    doc_date_filter: str = ""
+
+class RewriteRequest(BaseModel):
+    query: str
+    model: str
+    chat_history: List[Message] = []
+
+class StreamChatRequest(BaseModel):
+    collection_name: str
+    query: str
+    model: str
+    system_prompt_context: str
+    chat_history: List[Message] = []
+
+
+
+from fastapi import Depends
+import chromadb
+from ollama import Client
+from config import CHROMA_HOST, CHROMA_PORT, OLLAMA_HOST
+
+def get_chroma_client() -> chromadb.HttpClient:
+    return chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+
+def get_ollama_client() -> Client:
+    return Client(host=OLLAMA_HOST)
 
 # ---------------------------------------------------------------------------
 # Démarrage
@@ -169,6 +215,7 @@ async def generer_chat(requete: ChatRequest):
                 stream=True,
                 stats_dict=stats_dict,
                 context_size=requete.context_size,
+                think=requete.think,
             ):
                 yield chunk
             yield f"\nSTATS_JSON:{json.dumps(stats_dict)}"
@@ -206,6 +253,7 @@ Requête de l'utilisateur :"""
                 stream=True,
                 stats_dict=stats_dict,
                 context_size=requete.context_size,
+                think=requete.think,
             ):
                 yield chunk
             yield f"\nSTATS_JSON:{json.dumps(stats_dict)}"
@@ -277,6 +325,7 @@ Réponds UNIQUEMENT avec le ou les noms de tables SQL pertinentes, séparés par
             ],
             model=requete.modele, temperature=0.0, stream=True,
             context_size=requete.context_size, max_tokens=50,
+            think=requete.think,
         ):
             routing_response += chunk
         tables_cibles = routing_response.strip()
@@ -307,6 +356,7 @@ RÈGLES :
             messages=[{"role": "system", "content": system_sql}] + requete.messages,
             model=requete.modele, temperature=0.1, stream=True,
             context_size=requete.context_size, max_tokens=400,
+            think=requete.think,
         ):
             sql_response += chunk
 
@@ -388,6 +438,7 @@ RÈGLES :
                 messages=[{"role": "system", "content": system_synthese}] + requete.messages,
                 model=requete.modele, temperature=requete.temperature, stream=True,
                 context_size=requete.context_size, max_tokens=800,
+                think=requete.think,
             ):
                 yield chunk
 

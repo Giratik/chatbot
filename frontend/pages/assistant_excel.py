@@ -29,6 +29,7 @@ def new_session():
     st.session_state.knowledge_ready = False
     st.session_state.last_file_id = None
     st.session_state.tables_data = {}
+    st.session_state.think_mode = False
 
 def reset_and_rerun():
     if "session_id" in st.session_state:
@@ -120,6 +121,15 @@ def executer_sql_backend(sql: str) -> pd.DataFrame | None:
 
 st.set_page_config(page_title="Assistant Data & Graphiques", page_icon="📊", layout="wide")
 st.title("📊 Assistant Data & Graphiques")
+
+with st.sidebar:
+    st.divider()
+    st.session_state.think_mode = st.toggle(
+        "Mode raisonnement",
+        value=st.session_state.think_mode,
+        help="Active le mode 'raisonnement' des modèles pour une réflexion approfondie"
+    )
+    st.divider()
 
 if st.sidebar.button("Nouvelle session", use_container_width=True):
     reset_and_rerun()
@@ -277,6 +287,7 @@ payload = {
     "context_size": selected_context_size,
     "session_id": st.session_state.session_id,
     "mode": "graphique",  # toujours actif : le backend ajoute CHART_* seulement si pertinent
+    "think": st.session_state.think_mode,
 }
 
 with st.chat_message("assistant"):

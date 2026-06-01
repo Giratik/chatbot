@@ -36,6 +36,7 @@ def new_session():
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.messages = []
     st.session_state.processed_files = []
+    st.session_state.think_mode = False
 
 def reset_and_rerun():
     # fonction pour réinitialiser le chat, équivaut à recharger sa page avec f5
@@ -60,6 +61,15 @@ if os.path.exists(LOGO_PATH):
 
 if "session_id" not in st.session_state:
     new_session()
+
+with st.sidebar:
+    st.divider()
+    st.session_state.think_mode = st.toggle(
+        "Mode raisonnement",
+        value=st.session_state.think_mode,
+        help="Active le mode 'raisonnement' des modèles pour une réflexion approfondie"
+    )
+    st.divider()
 
 if st.sidebar.button("Nouvelle session", use_container_width=True):
     reset_and_rerun()
@@ -139,7 +149,8 @@ if user_input :
             "messages": messages_pour_api,
             "modele": DEFAULT_LLM,
             "temperature": TEMPERATURE,
-            "context_size": CONTEXT_SIZE
+            "context_size": CONTEXT_SIZE,
+            "think": st.session_state.think_mode
         }
         with st.sidebar:
             if PAYLOAD_DEBUG == "show" : st.subheader("🔍 Debug — Payload")
