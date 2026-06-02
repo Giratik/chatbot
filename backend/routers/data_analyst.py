@@ -3,11 +3,30 @@ import traceback
 import duckdb
 from fastapi import APIRouter, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
-from schemas.data import ChatRequest_csv, SqlRequest
+
 import duckdb_session as ddb
 from ollama_client import inferring_ollama
+from pydantic import BaseModel
+from typing import List, Dict, Any
 
 router = APIRouter(tags=["Data Analyst"])
+
+
+class ChatRequest_csv(BaseModel):
+    messages: List[Dict[str, Any]]
+    modele: str
+    temperature: float
+    context_size: int
+    session_id: str = "default"
+    mode: str = "discussion"
+    think: bool = False
+
+class SqlRequest(BaseModel):
+    sql: str
+    session_id: str = "default"
+
+class SessionRequest(BaseModel):
+    session_id: str = "default"
 
 @router.post("/parse_excel")
 async def parse_excel(
