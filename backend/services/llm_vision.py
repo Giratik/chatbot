@@ -1,5 +1,11 @@
-#import os
-#import ollama
+# backend/services/llm_vision.py
+
+"""
+Module : Analyse Vision LLM
+Description : Gère le traitement et l'envoi des images aux modèles de langage multimodaux 
+                capables de décrire ou d'analyser des éléments visuels.
+"""
+
 import os
 import httpx
 from ollama import Client

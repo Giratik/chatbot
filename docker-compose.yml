@@ -1,4 +1,3 @@
-
 services:
 
   backend:
@@ -7,23 +6,21 @@ services:
       dockerfile: Dockerfile
     container_name: chatbot-backend
     volumes:
-      #- ./backend:/app
-      #- ./chroma_db:/app/chroma_db  # Pour stocker la base de données Chroma de manière persistante
-     # - ./_rag_base:/app/_rag_base  # Pour stocker les CSV et autres ressources du RAG
-     # (Tu peux aussi faire du bind mount sur des dossiers spécifiques à l'intérieur du conteneur si tu préfères)
-     - /home/paulvidouze/.cache/huggingface:/root/.cache/huggingface
+      - /home/paulvidouze/.cache/huggingface:/root/.cache/huggingface
     ports:
       - "8000:8000"
     environment:
-      # L'IP de ta machine hôte vue depuis Docker pour contacter Ollama
-      - OLLAMA_HOST=http://10.75.12.5:11434 
-      #- DEFAULT_LLM=mistral:latest
+      - OLLAMA_HOST=http://10.75.12.5:11434
       - CONTEXT_SIZE=30000
       - TEMPERATURE=0.4
       - DEFAULT_LLM=gemma4:e4b
       - TRANSFORMERS_OFFLINE=1
       - HF_DATASETS_OFFLINE=1
       - HF_HOME=/root/.cache/huggingface
+      - EMBEDDING_MODEL=embeddinggemma:latest
+      # ← ChromaDB joignable via son nom de service sur chroma_net
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
     deploy:
       resources:
         limits:
@@ -33,12 +30,12 @@ services:
           cpus: '2'
           memory: 4G
           devices:
-              - driver: nvidia
-                count: 1
-                capabilities: [gpu]
-    #networks:
-    #  - monitoring
-
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - default
+      - chroma_net   # ← rejoint le réseau ChromaDB
 
   frontend:
     build:
@@ -48,71 +45,20 @@ services:
     ports:
       - "8501:8501"
     environment:
-      # Le frontend communique avec le backend via le nom du service Docker
+      # ← nom de service Docker, pas localhost
       - API_URL=http://backend:8000
       - STREAMLIT_BROWSER_SERVER_ADDRESS=10.75.12.5
       - CONTEXT_SIZE=30000
       - TEMPERATURE=0.4
-      - DEFAULT_LLM=gemma4:e4b 
-      - DEFAULT_VLM=gemma4:e4b 
+      - DEFAULT_LLM=gemma4:e4b
+      - DEFAULT_VLM=gemma4:e4b
       - PAYLOAD_DEBUG=hide
     depends_on:
       - backend
-    #networks:
-    #  - monitoring
+    networks:
+      - default
 
-#  prometheus:
-#    image: prom/prometheus:latest
-#    container_name: prometheus
-#    volumes:
-#      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-#    ports:
-#      - "9090:9090"
-#    networks:
-#      - monitoring
-#    depends_on:
-#      - backend
-#
-#  grafana:
-#    image: grafana/grafana:latest
-#    container_name: grafana
-#    ports:
-#      - "3000:3000"
-#    environment:
-#      - GF_SECURITY_ADMIN_PASSWORD=admin
-#    networks:
-#      - monitoring
-#    depends_on:
-#      - backend
-#
-#  node-exporter:
-#    image: prom/node-exporter:latest
-#    container_name: node-exporter
-#    volumes:
-#      - /proc:/host/proc:ro
-#      - /sys:/host/sys:ro
-#      - /:/rootfs:ro
-#    command:
-#      - '--path.procfs=/host/proc'
-#      - '--path.sysfs=/host/sys'
-#      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
-#    networks:
-#      - monitoring
-#    depends_on:
-#      - backend
-#
-#  gpu-exporter:
-#    image: nvidia/dcgm-exporter:latest
-#    container_name: gpu-exporter
-#    environment:
-#      - NVIDIA_VISIBLE_DEVICES=all
-#    runtime: nvidia # Indispensable pour accéder au GPU
-#    ports:
-#      - "9400:9400"
-#    networks:
-#      - monitoring
-#    depends_on:
-#      - backend
-#
-#networks:
-#  monitoring:
+networks:
+  default: {}
+  chroma_net:
+    external: true   # ← réseau déclaré dans l'autre docker-compose

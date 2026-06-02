@@ -1,8 +1,14 @@
-#backend/file_type_action.py
+#backend/utils/file_type_action.py
+
+"""
+Module : Routeur de Types de Fichiers
+Description : Détermine l'action ou le parser approprié à utiliser (PDF, Excel, TXT, Image) 
+              en fonction de l'extension du fichier téléversé.
+"""
 
 import filetype
-from llm_vision import analyse_image
-from paddle_ocr_processor import process_file_with_ocr
+from services.llm_vision import analyse_image
+from services.paddle_ocr_processor import process_file_with_ocr
 
 import io
 import zipfile

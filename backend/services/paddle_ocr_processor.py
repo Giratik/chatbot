@@ -1,5 +1,9 @@
+# backend/services/paddle_ocr_processor.py
+
 """
-PaddleOCR Processor - OCR avec support GPU CUDA
+Module : Processeur OCR (PaddleOCR)
+Description : Permet l'extraction de texte à partir d'images ou de PDF scannés en utilisant 
+              le framework d'OCR PaddleOCR avant l'injection dans le RAG.
 """
 
 import io
@@ -16,8 +20,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import httpx
 from ollama import Client
 
-from ollama_client import inferring_ollama
-from llmlingua_format import token_saver
+from services.ollama_client import inferring_ollama
+from utils.llmlingua_format import token_saver
 
 # Configuration Ollama
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")

@@ -1,13 +1,10 @@
-# backend/duckdb_session.py
-#
-# Stack simplifiée :
-#   Lecture   → openpyxl (détection d'îlots existante conservée)
-#   Stockage  → DuckDB in-memory par session (RAM uniquement, zéro disque)
-#   Dialogue  → Schéma injecté directement dans le system prompt (zéro embeddings)
-#   Graphes   → SQL → Polars → Plotly (côté frontend)
-#
-# Cycle de vie : ExcelSession vit le temps de la session HTTP.
-# Destruction = libération mémoire immédiate, rien à nettoyer sur disque.
+# backend/core/duckdb_session.py
+
+"""
+Module : Session DuckDB
+Description : Gère la connexion, l'initialisation et le cycle de vie de la base de données 
+              locale DuckDB pour le stockage structuré ou l'analyse de données (data analyst).
+"""
 
 import io
 import uuid

@@ -1,8 +1,16 @@
+#backend/routers/files.py
+
+"""
+Routeur API : Gestion des Fichiers
+Description : Gère les points d'entrée pour l'importation (upload), la suppression et le suivi 
+              des documents soumis par l'utilisateur pour alimenter le chatbot.
+"""
+
 import io
 import time
 import asyncio
 from fastapi import APIRouter, UploadFile, File, Form
-from file_type_action import analyser_contenu_fichier
+from utils.file_type_action import analyser_contenu_fichier
 
 router = APIRouter(tags=["Files"])
 verrou_vlm_image = asyncio.Semaphore(1)

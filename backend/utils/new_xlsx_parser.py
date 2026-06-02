@@ -1,10 +1,10 @@
-# backend/xlsx_parser.py
-#
-# Architecture refactorisée selon le schéma proposé :
-#   Lecture  → Polars + Calamine (binaire ultra-rapide)
-#   Stockage → Parquet temporaire (côté backend)
-#   Indexation → ChromaDB sur métadonnées de colonnes uniquement (pas les lignes)
-#   Dialogue → FastAPI + code-gen (le LLM génère du code Polars exécuté côté backend)
+# backend/utils/new_xlsx_parser.py
+
+"""
+Module : Parser de Fichiers Excel (.xlsx)
+Description : Logique d'extraction, de nettoyage et de structuration des données contenues 
+                dans les feuilles de calcul Excel pour leur analyse ou indexation.
+"""
 
 import os
 import uuid

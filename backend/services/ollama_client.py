@@ -1,3 +1,11 @@
+# backend/services/ollama_client.py
+
+"""
+Module : Client Ollama
+Description : Gère les interactions et les requêtes HTTP/API avec l'instance locale d'Ollama 
+                pour l'inférence des modèles de langage (LLM).
+"""
+
 import os
 import time
 import httpx

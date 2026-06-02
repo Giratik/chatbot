@@ -1,11 +1,19 @@
+# backend/routers/data_analyst.py
+
+"""
+Routeur API : Assistant Data Analyst
+Description : Gère les requêtes spécifiques à l'analyse de fichiers structurés (génération de graphiques, 
+                requêtes SQL/DuckDB sur les fichiers importés).
+"""
+
 import re
 import traceback
 import duckdb
 from fastapi import APIRouter, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 
-import duckdb_session as ddb
-from ollama_client import inferring_ollama
+import core.duckdb_session as ddb
+from services.ollama_client import inferring_ollama
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
