@@ -41,7 +41,7 @@ def analyse_image(image_bytes, prompt, model):
             # llama3.2-vision:11b à oublier
             # llava:13b à oublier pour l'instant, il est très lent et ne semble pas plus performant que les autres sur les tâches simples.
             # llava:7b à oublier, trop faible.
-            # gemma4:e4b très performant globalement sur la reconnaissance de textes et formes, par contre confond des fraises et framboises
+            # gemma4:e4b très performant globalement sur la reconnaissance de textes et formes, par contre confond fraises et framboises
             model=model,
             options={
                 "temperature": 0.4,

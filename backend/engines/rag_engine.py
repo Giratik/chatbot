@@ -326,7 +326,15 @@ def stream_answer(ollama_client: Any, model: str, system_prompt: str, user_quest
         stream=True,
         options={"temperature": 0.0},
     ):
-        yield chunk["message"]["content"]
+        if isinstance(chunk, str):
+            yield chunk
+        elif isinstance(chunk, dict):
+            yield chunk.get("message", {}).get("content", "")
+        else:
+            try:
+                yield chunk.message.content
+            except AttributeError:
+                yield str(chunk)
 
 
 # Reranker functionality has been removed; the related imports and variables are no longer needed.
@@ -432,4 +440,12 @@ def stream_answer(
         stream=True,
         options={"temperature": 0.0},
     ):
-        yield chunk["message"]["content"]
+        if isinstance(chunk, str):
+            yield chunk
+        elif isinstance(chunk, dict):
+            yield chunk.get("message", {}).get("content", "")
+        else:
+            try:
+                yield chunk.message.content
+            except AttributeError:
+                yield str(chunk)
