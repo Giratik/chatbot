@@ -25,7 +25,7 @@ client = Client(
     )
 )
 
-def inferring_ollama(messages, model, temperature=0.4, stream=False, stats_dict=None, context_size=30000, think=False, **kwargs):
+def inferring_ollama(messages, model, temperature=0.2, stream=False, stats_dict=None, context_size=30000, think=False, **kwargs):
     # Appel à l'API avec le paramètre stream
     start = time.time()
     #with llm_latency.time():
