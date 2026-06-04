@@ -46,7 +46,7 @@ def render_chat(title="Chatbot EDP"):
 
     # --- SIDEBAR ---
     with st.sidebar:
-        st.divider()
+        #st.divider()
         st.session_state.think_mode = st.toggle(
             "Mode raisonnement",
             value=st.session_state.think_mode,
@@ -131,7 +131,7 @@ def render_chat(title="Chatbot EDP"):
             }
 
             with st.sidebar:
-                st.info(f"Si la réponse indique 'Token prompt utilisateur : {CONTEXT_SIZE}', alors les informations les plus anciennes de la conversation ont été oubliées.")
+                #st.info(f"Si la réponse indique 'Token prompt utilisateur : {CONTEXT_SIZE}', alors les informations les plus anciennes de la conversation ont été oubliées.")
                 if PAYLOAD_DEBUG == "show": 
                     st.subheader("🔍 Debug — Payload")
                     st.json(payload)

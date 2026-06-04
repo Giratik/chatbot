@@ -67,23 +67,15 @@ python-dotenv
 llmlingua==0.2.2
 transformers==5.5.4
 
-#openpyxl
-
+openpyxl
 tabulate
-
-
 python-docx
 python-pptx
-
-
 python-calamine
-
-
 fastexcel
-
-
 duckdb==1.2.2
-
-
 rank-bm25>=0.2.2
 flashrank>=0.2.1
+
+# Excel utilities dependencies
+plotly==6.6.0

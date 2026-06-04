@@ -14,6 +14,7 @@ import io
 import zipfile
 import docx
 from pptx import Presentation
+import pandas as pd
 
 MIMES_OFFICE = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
@@ -164,6 +165,57 @@ def format_non_supporte(fichier_bytes, model_vlm):
     return "⚠️ Ce type de contenu n'est pas encore pris en charge."
 
 
+# --- XLSX ---
+
+def traiter_xlsx(fichier_objet, model_vlm):
+    """Extrait le contenu des feuilles et tableaux d'un fichier Excel."""
+    print("Extraction du contenu Excel...")
+    fichier_bytes = fichier_objet.getvalue()
+    parties = []
+
+    try:
+        # Lire le fichier Excel avec pandas
+        xls = pd.ExcelFile(io.BytesIO(fichier_bytes))
+
+        # Parcourir chaque feuille
+        for sheet_name in xls.sheet_names:
+            try:
+                # Lire les données de la feuille
+                df = pd.read_excel(io.BytesIO(fichier_bytes), sheet_name=sheet_name)
+
+                if not df.empty:
+                    sheet_content = [f"=== Feuille: {sheet_name} ==="]
+
+                    # Ajouter les données sous forme de tableau
+                    sheet_content.append("| " + " | ".join(str(col).strip() for col in df.columns) + " |")
+
+                    # Ajouter une ligne de séparation
+                    sheet_content.append("| " + " | ".join("---" for _ in df.columns) + " |")
+
+                    # Ajouter les lignes de données (limité aux 50 premières pour éviter les fichiers trop volumineux)
+                    for i, row in df.head(50).iterrows():
+                        sheet_content.append("| " + " | ".join(str(val).strip() if pd.notna(val) else "" for val in row) + " |")
+
+                    # Ajouter un résumé si le dataframe est plus grand
+                    if len(df) > 50:
+                        sheet_content.append(f"\n... (affichage limité aux 50 premières lignes sur {len(df)} au total)")
+
+                    parties.append("\n".join(sheet_content))
+
+            except Exception as e:
+                print(f"Erreur lecture feuille {sheet_name}: {e}")
+                parties.append(f"⚠️ Impossible de lire la feuille '{sheet_name}': {str(e)}")
+
+        if not parties:
+            parties.append("⚠️ Le fichier Excel ne contient aucune donnée lisible.")
+
+    except Exception as e:
+        print(f"Erreur extraction Excel: {e}")
+        parties.append(f"⚠️ Impossible de lire le fichier Excel: {str(e)}")
+
+    return "\n\n".join(parties) if parties else "⚠️ Impossible de lire le fichier Excel."
+
+
 # --- 2. DICTIONNAIRE DE ROUTAGE ---
 
 ROUTEUR = {
@@ -172,6 +224,7 @@ ROUTEUR = {
     "texte": traiter_texte,
     "docx":  traiter_docx,
     "pptx":  traiter_pptx,
+    "xlsx":  traiter_xlsx,
 }
 
 EXTENSIONS_TEXTE = {"txt", "csv", "md", "json", "xml", "html", "py", "js", "ts"}
@@ -187,7 +240,7 @@ def analyser_contenu_fichier(uploaded_file, model_vlm):
     extension = nom.rsplit('.', 1)[-1].lower() if '.' in nom else ''
 
     # 1. Extension en priorité pour les formats Office
-    if extension in ('docx', 'pptx'):
+    if extension in ('docx', 'pptx', 'xlsx'):
         categorie = extension
 
     elif kind is None:

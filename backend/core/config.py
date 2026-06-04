@@ -58,3 +58,5 @@ CAS 2 — Demande de calcul, agrégation, filtre ou graphique
 → Utilise EXACTEMENT les noms de tables et colonnes fournis ci-dessus.
 → Ne génère jamais de code Python.
 """
+
+e="e7ENfGEvcZYpph3eCOKvzWrUFWcWALDL"

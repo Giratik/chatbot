@@ -15,7 +15,8 @@ from fastapi.responses import StreamingResponse
 import core.duckdb_session as ddb
 from services.ollama_client import inferring_ollama
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from utils.excel_utils import extraire_sql_et_metadata, construire_graphe, executer_sql_backend, analyser_reponse_excel
 
 router = APIRouter(tags=["Data Analyst"])
 
@@ -35,6 +36,20 @@ class SqlRequest(BaseModel):
 
 class SessionRequest(BaseModel):
     session_id: str = "default"
+
+class SqlExtractionRequest(BaseModel):
+    llm_response: str
+
+class ChartBuildingRequest(BaseModel):
+    data: List[Dict[str, Any]]
+    chart_meta: Dict[str, str]
+
+class SqlExecutionRequest(BaseModel):
+    sql: str
+    session_id: str = "default"
+
+class ExcelAnalysisRequest(BaseModel):
+    llm_response: str
 
 @router.post("/parse_excel")
 async def parse_excel(
@@ -265,3 +280,103 @@ async def delete_session(session_id: str):
 async def sessions_count():
     """Nombre de sessions DuckDB actives (monitoring)."""
     return {"active_sessions": ddb.registry.active_count()}
+
+# --- NOUVELLES ROUTES POUR LES UTILITAIRES EXCEL ---
+
+@router.post("/extract_sql_metadata")
+async def extract_sql_metadata(request: SqlExtractionRequest):
+    """
+    Extrait le SQL et les métadonnées de graphique d'une réponse LLM.
+
+    Args:
+        llm_response: Réponse texte du modèle LLM
+
+    Returns:
+        dict: Contient sql (str) et chart_meta (dict)
+    """
+    try:
+        sql, chart_meta = extraire_sql_et_metadata(request.llm_response)
+        return {
+            "status": "success",
+            "sql": sql,
+            "chart_meta": chart_meta
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/build_chart")
+async def build_chart(request: ChartBuildingRequest):
+    """
+    Construit une spécification de graphique à partir de données et de métadonnées.
+
+    Args:
+        data: Données au format JSON (liste de dictionnaires)
+        chart_meta: Métadonnées de graphique
+
+    Returns:
+        dict: Spécification de graphique au format JSON
+    """
+    try:
+        # Convertir les données JSON en DataFrame
+        df = pd.DataFrame(request.data)
+
+        # Construire le graphique
+        chart_spec = construire_graphe(df, request.chart_meta)
+
+        if chart_spec:
+            return {
+                "status": "success",
+                "chart_spec": chart_spec
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Impossible de construire le graphique avec les données et métadonnées fournies"
+            }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/execute_sql_excel")
+async def execute_sql_excel(request: SqlExecutionRequest):
+    """
+    Exécute une requête SQL et retourne les résultats pour construction de graphique.
+
+    Args:
+        sql: Requête SQL à exécuter
+        session_id: Identifiant de session DuckDB
+
+    Returns:
+        dict: Contient les données et métadonnées pour construction de graphique
+    """
+    try:
+        # Exécuter la requête SQL
+        df = executer_sql_backend(request.sql, request.session_id)
+
+        return {
+            "status": "success",
+            "n_rows": len(df),
+            "data": df.to_dict(orient='records'),
+            "columns": list(df.columns)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/analyze_excel_response")
+async def analyze_excel_response(request: ExcelAnalysisRequest):
+    """
+    Analyse une réponse LLM complète pour extraire tous les composants Excel.
+
+    Args:
+        llm_response: Réponse complète du modèle LLM
+
+    Returns:
+        dict: Analyse structurée avec SQL, métadonnées et spécification de graphique
+    """
+    try:
+        result = analyser_reponse_excel(request.llm_response)
+        return {
+            "status": "success",
+            **result
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
