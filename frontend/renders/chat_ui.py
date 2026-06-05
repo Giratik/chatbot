@@ -66,7 +66,7 @@ def render_chat(title="Chatbot EDP"):
     user_input = st.chat_input(
         "Votre message...",
         accept_file=True,
-        file_type=["pdf", "txt", "md", "docx", "pptx", "jpg", "webp", "png"],
+        file_type=["pdf", "txt", "md", "docx", "pptx", "jpg", "webp", "png", "xlsx"],
     )
 
     # 2. TRAITEMENT DE L'ENTRÉE UTILISATEUR

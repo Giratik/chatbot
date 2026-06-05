@@ -45,7 +45,7 @@ def analyse_image(image_bytes, prompt, model):
             model=model,
             options={
                 "temperature": 0.4,
-                "num_ctx":12288,
+                "num_ctx":30000,
             },
             messages=[
                 {

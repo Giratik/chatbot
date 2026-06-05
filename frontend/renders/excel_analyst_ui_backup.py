@@ -1,10 +1,4 @@
-# excel_analyst_ui.py - Version encapsulée pour réutilisation
-"""
-Version fonctionnelle encapsulée dans render_excel_analyst()
-pour être appelée depuis n'importe quelle page Streamlit.
-Basée sur l'architecture originale qui fonctionnait.
-"""
-
+# excel_analyst_ui.py
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -22,12 +16,8 @@ DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "ministral-3:14b")
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 30000))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", 0.4))
 
-# ---------------------------------------------------------------------------
-# Gestion de session
-# ---------------------------------------------------------------------------
-
 def init_session_state():
-    """Initialise ou restaure les variables de session pour résister aux rechargements (F5)."""
+    """Initialise ou restaure les variables de session pour l'assistant Excel."""
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
     if "messages" not in st.session_state:
@@ -44,7 +34,12 @@ def init_session_state():
         st.session_state.think_mode = False
 
 def reset_and_rerun():
-    """Réinitialise le chat et recharge la page."""
+    """Réinitialise la session Excel et recharge la page."""
+    if "session_id" in st.session_state:
+        try:
+            requests.delete(f"{API_URL}/session/{st.session_state.session_id}", timeout=3)
+        except Exception:
+            pass
     st.session_state.session_id = str(uuid.uuid4())
     st.session_state.messages = []
     st.session_state.tables_info = None
@@ -53,63 +48,85 @@ def reset_and_rerun():
     st.session_state.tables_data = {}
     st.rerun()
 
-# ---------------------------------------------------------------------------
-# Fonctions locales (comme dans la version originale qui fonctionnait)
-# ---------------------------------------------------------------------------
-
 def extraire_sql_et_metadata(llm_response: str) -> tuple[str | None, dict]:
-    """Extrait le SQL et les métadonnées de graphique - version locale."""
-    sql_match = re.search(r"```sql\n(.*?)\n```", llm_response, re.DOTALL)
-    if not sql_match:
+    """
+    Extrait le code SQL et les métadonnées de graphique via l'API backend.
+    """
+    try:
+        resp = requests.post(
+            f"{API_URL}/extract_sql_metadata",
+            json={"llm_response": llm_response},
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("status") == "success":
+            return data.get("sql"), data.get("chart_meta", {})
+        else:
+            st.error(f"❌ Erreur extraction SQL : {data.get('message')}")
+            return None, {}
+    except Exception as e:
+        st.error(f"❌ Erreur connexion backend : {e}")
         return None, {}
 
-    bloc = sql_match.group(1).strip()
-    chart_meta = {}
-    for key in ["CHART_TYPE", "CHART_X", "CHART_Y", "CHART_TITLE", "CHART_COLOR"]:
-        m = re.search(rf"--\s*{key}:\s*(.+)", bloc)
-        if m:
-            chart_meta[key] = m.group(1).strip()
-
-    lignes_sql = [l for l in bloc.splitlines() if not l.strip().startswith("--")]
-    sql_pur = "\n".join(lignes_sql).strip()
-    return sql_pur, chart_meta
-
 def construire_graphe(df: pd.DataFrame, meta: dict) -> go.Figure | None:
-    """Construit un graphique localement - version simplifiée."""
-    chart_type = meta.get("CHART_TYPE", "bar").lower()
-    x = meta.get("CHART_X")
-    y = meta.get("CHART_Y")
-    title = meta.get("CHART_TITLE", "")
-    color = meta.get("CHART_COLOR")
-
-    if x and x not in df.columns:
-        x = df.columns[0] if len(df.columns) > 0 else None
-    if y and y not in df.columns:
-        y = df.columns[1] if len(df.columns) > 1 else None
-
+    """
+    Construit un graphique via l'API backend et retourne une figure Plotly.
+    """
     try:
-        kwargs = dict(data_frame=df, x=x, y=y, title=title)
-        if color and color in df.columns:
-            kwargs["color"] = color
-        if chart_type == "bar":
-            return px.bar(**kwargs)
-        elif chart_type == "line":
-            return px.line(**kwargs)
-        elif chart_type == "pie":
-            return px.pie(df, names=x, values=y, title=title)
-        elif chart_type == "scatter":
-            return px.scatter(**kwargs)
+        resp = requests.post(
+            f"{API_URL}/build_chart",
+            json={
+                "data": df.to_dict(orient='records'),
+                "chart_meta": meta
+            },
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("status") == "success":
+            chart_spec = data.get("chart_spec", {})
+
+            # Reconstruire la figure Plotly à partir de la spécification
+            chart_type = chart_spec.get("type", "bar")
+            x = chart_spec.get("layout", {}).get("xaxis", {}).get("title")
+            y = chart_spec.get("layout", {}).get("yaxis", {}).get("title")
+            title = chart_spec.get("layout", {}).get("title")
+            color = chart_spec.get("color")
+
+            # Convertir les données JSON en DataFrame
+            df_data = pd.DataFrame(chart_spec.get("data", []))
+
+            try:
+                kwargs = dict(data_frame=df_data, x=x, y=y, title=title)
+                if color and color in df_data.columns:
+                    kwargs["color"] = color
+
+                if chart_type == "bar":
+                    return px.bar(**kwargs)
+                elif chart_type == "line":
+                    return px.line(**kwargs)
+                elif chart_type == "pie":
+                    return px.pie(df_data, names=x, values=y, title=title)
+                elif chart_type == "scatter":
+                    return px.scatter(**kwargs)
+                else:
+                    return px.bar(**kwargs)
+            except Exception as e:
+                st.warning(f"⚠️ Graphe impossible à construire : {e}")
+                return None
         else:
-            return px.bar(**kwargs)
+            st.error(f"❌ Erreur construction graphe : {data.get('message')}")
+            return None
     except Exception as e:
-        st.warning(f"⚠️ Graphe impossible à construire : {e}")
+        st.error(f"❌ Erreur connexion backend : {e}")
         return None
 
 def executer_sql_backend(sql: str) -> pd.DataFrame | None:
-    """Exécute SQL via le backend - version simplifiée."""
+    """
+    Exécute une requête SQL via le backend et retourne les résultats.
+    """
     try:
         resp = requests.post(
-            f"{API_URL}/execute_sql",
+            f"{API_URL}/execute_sql_excel",
             json={"sql": sql, "session_id": st.session_state.session_id},
             timeout=30,
         )
@@ -123,10 +140,6 @@ def executer_sql_backend(sql: str) -> pd.DataFrame | None:
         st.error(f"❌ Connexion backend : {e}")
         return None
 
-# ---------------------------------------------------------------------------
-# Fonction principale encapsulée (comme chat_ui.py)
-# ---------------------------------------------------------------------------
-
 def render_excel_analyst(title="📊 Assistant Data & Graphiques"):
     """
     Fonction principale pour générer l'interface d'analyse Excel.
@@ -139,7 +152,6 @@ def render_excel_analyst(title="📊 Assistant Data & Graphiques"):
 
     # --- SIDEBAR ---
     with st.sidebar:
-        st.divider()
         st.session_state.think_mode = st.toggle(
             "Mode raisonnement",
             value=st.session_state.think_mode,
@@ -194,7 +206,10 @@ def render_excel_analyst(title="📊 Assistant Data & Graphiques"):
                     st.session_state.tables_info = data["tables"]
                     st.session_state.knowledge_ready = True
 
-                    # Charger les données des tables
+                    # Lecture des données pour affichage
+                    uploaded_file.seek(0)
+                    xls_data = pd.read_excel(uploaded_file, sheet_name=onglet_choisi, header=None)
+
                     for table in data["tables"]:
                         try:
                             r = requests.post(
@@ -233,29 +248,15 @@ def render_excel_analyst(title="📊 Assistant Data & Graphiques"):
             st.info("Chargez un fichier pour visualiser les données.")
 
     # --- HISTORIQUE DES MESSAGES ---
-# Dans la boucle d'affichage de l'historique
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            display_content = re.sub(r"```sql\n.*?\n```\n?", "", message["display_content"], flags=re.DOTALL).strip()
-            st.markdown(display_content)
-
+            # On masque le bloc sql de l'affichage — interne au backend
+            display = re.sub(r"```sql\n.*?\n```\n?", "", message["display_content"], flags=re.DOTALL).strip()
+            st.markdown(display)
             if "plot" in message:
                 st.plotly_chart(message["plot"], use_container_width=True)
-            
-            # ← Ajouter : reconstruire depuis chart_data
-            if "chart_data" in message:
-                df = pd.DataFrame(message["chart_data"]["data"])
-                fig = construire_graphe(df, {
-                    "CHART_TYPE":  message["chart_data"]["type"],
-                    "CHART_X":     message["chart_data"]["layout"]["x"],
-                    "CHART_Y":     message["chart_data"]["layout"]["y"],
-                    "CHART_TITLE": message["chart_data"]["layout"]["title"],
-                })
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-
             if "dataframe" in message:
-                st.dataframe(pd.DataFrame(message["dataframe"]), use_container_width=True)
+                st.dataframe(message["dataframe"], use_container_width=True)
 
     # --- SAISIE & APPEL API ---
     user_prompt = st.chat_input("Posez une question sur vos données...")
@@ -315,34 +316,89 @@ def render_excel_analyst(title="📊 Assistant Data & Graphiques"):
             "content": full_response,
         }
 
-    if sql and chart_meta:
-        with st.spinner("📊 Construction du graphe..."):
-            df_result = executer_sql_backend(sql)
-            if df_result is not None and not df_result.empty:
-                fig = construire_graphe(df_result, chart_meta)
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-                    # Stocker les données pour le graphe plutôt que l'objet Figure
-                    message_assistant["chart_data"] = {
-                        "type": chart_meta.get("CHART_TYPE", "bar"),
-                        "data": df_result.to_dict(orient='records'),
-                        "layout": {
-                            "x": chart_meta.get("CHART_X"),
-                            "y": chart_meta.get("CHART_Y"),
-                            "title": chart_meta.get("CHART_TITLE")
-                        }
-                    }
+        # Essayer d'abord l'ancien format SQL
+        if sql and chart_meta:
+            with st.spinner("📊 Construction du graphe..."):
+                df_result = executer_sql_backend(sql)
+                if df_result is not None and not df_result.empty:
+                    fig = construire_graphe(df_result, chart_meta)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                        message_assistant["plot"] = fig
 
-                st.dataframe(df_result, use_container_width=True)
-                message_assistant["dataframe"] = df_result
+                    st.dataframe(df_result, use_container_width=True)
+                    message_assistant["dataframe"] = df_result
 
-                csv = df_result.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Télécharger (CSV)",
-                    data=csv,
-                    file_name="resultat.csv",
-                    mime="text/csv",
-                    key=f"dl_{len(st.session_state.messages)}",
+                    csv = df_result.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="📥 Télécharger (CSV)",
+                        data=csv,
+                        file_name="resultat.csv",
+                        mime="text/csv",
+                        key=f"dl_{len(st.session_state.messages)}",
+                    )
+        else:
+            # Si l'ancien format échoue, essayer le nouveau format <chart>
+            try:
+                resp = requests.post(
+                    f"{API_URL}/build_chart_from_llm",
+                    json={"llm_response": full_response},
+                    timeout=30,
                 )
+                data = resp.json()
+                if data.get("status") == "success":
+                    chart_spec = data.get("chart_spec", {})
+
+                    # Reconstruire la figure Plotly à partir de la spécification
+                    chart_type = chart_spec.get("type", "bar")
+                    x = chart_spec.get("layout", {}).get("xaxis", {}).get("title")
+                    y = chart_spec.get("layout", {}).get("yaxis", {}).get("title")
+                    title = chart_spec.get("layout", {}).get("title")
+                    color = chart_spec.get("color")
+
+                    # Convertir les données JSON en DataFrame
+                    df_data = pd.DataFrame(chart_spec.get("data", []))
+
+                    if not df_data.empty:
+                        with st.spinner("📊 Construction du graphe..."):
+                            try:
+                                kwargs = dict(data_frame=df_data, x=x, y=y, title=title)
+                                if color and color in df_data.columns:
+                                    kwargs["color"] = color
+
+                                if chart_type == "bar":
+                                    fig = px.bar(**kwargs)
+                                elif chart_type == "line":
+                                    fig = px.line(**kwargs)
+                                elif chart_type == "pie":
+                                    fig = px.pie(df_data, names=x, values=y, title=title)
+                                elif chart_type == "scatter":
+                                    fig = px.scatter(**kwargs)
+                                else:
+                                    fig = px.bar(**kwargs)
+
+                                if fig:
+                                    st.plotly_chart(fig, use_container_width=True)
+                                    message_assistant["plot"] = fig
+
+                                st.dataframe(df_data, use_container_width=True)
+                                message_assistant["dataframe"] = df_data
+
+                                csv = df_data.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    label="📥 Télécharger (CSV)",
+                                    data=csv,
+                                    file_name="resultat.csv",
+                                    mime="text/csv",
+                                    key=f"dl_{len(st.session_state.messages)}",
+                                )
+                            except Exception as e:
+                                st.warning(f"⚠️ Graphe impossible à construire : {e}")
+                    else:
+                        st.warning("⚠️ Aucune donnée valide pour le graphique")
+                else:
+                    st.error(f"❌ Erreur construction graphe : {data.get('message')}")
+            except Exception as e:
+                st.error(f"❌ Erreur connexion backend : {e}")
 
         st.session_state.messages.append(message_assistant)

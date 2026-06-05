@@ -16,7 +16,7 @@ import core.duckdb_session as ddb
 from services.ollama_client import inferring_ollama
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-from utils.excel_utils import extraire_sql_et_metadata, construire_graphe, executer_sql_backend, analyser_reponse_excel
+from utils.excel_utils import extraire_sql_et_metadata, construire_graphe, construire_graphe_from_chart_tag, executer_sql_backend, analyser_reponse_excel
 
 router = APIRouter(tags=["Data Analyst"])
 
@@ -134,10 +134,13 @@ RÈGLES :
 - Plusieurs tables → plusieurs SELECT séparés dans le même bloc.
 {chart_rules}
 - Génère UNIQUEMENT un bloc ```sql ... ```, rien d'autre."""
-
+        messages_nettoyes = [
+            {"role": m["role"], "content": re.sub(r"```sql\n.*?\n```\n?", "", m["content"], flags=re.DOTALL).strip()}
+            for m in requete.messages
+        ]
         sql_response = ""
         for chunk in inferring_ollama(
-            messages=[{"role": "system", "content": system_sql}] + requete.messages,
+            messages=[{"role": "system", "content": system_sql}] + messages_nettoyes,
             model=requete.modele, temperature=0.1, stream=True,
             context_size=requete.context_size, max_tokens=400,
             think=requete.think,
@@ -218,8 +221,12 @@ RÈGLES :
             # Préfixe les métadonnées graphe pour le frontend
             if is_graphique and chart_comments and sql_pur_final:
                 yield f"```sql\n{chart_comments}\n{sql_pur_final}\n```\n"
+            messages_nettoyes = []
+            for m in requete.messages:
+                content = re.sub(r"```sql\n.*?\n```\n?", "", m["content"], flags=re.DOTALL).strip()
+                messages_nettoyes.append({"role": m["role"], "content": content})
             for chunk in inferring_ollama(
-                messages=[{"role": "system", "content": system_synthese}] + requete.messages,
+                messages=[{"role": "system", "content": system_synthese}] + messages_nettoyes,
                 model=requete.modele, temperature=requete.temperature, stream=True,
                 context_size=requete.context_size, max_tokens=800,
                 think=requete.think,
@@ -250,8 +257,9 @@ async def execute_sql(requete: SqlRequest):
       4. Frontend reçoit les données + construit le graphe Plotly
     """
     try:
-        session = ddb.registry.get_or_raise(requete.session_id)
-        records = session.query_to_records(requete.sql)
+        # Utiliser la fonction backend unifiée pour la cohérence
+        df = executer_sql_backend(requete.sql, requete.session_id)
+        records = df.to_dict(orient='records')
 
         return {
             "status": "success",
@@ -333,6 +341,45 @@ async def build_chart(request: ChartBuildingRequest):
                 "status": "error",
                 "message": "Impossible de construire le graphique avec les données et métadonnées fournies"
             }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/build_chart_from_llm")
+async def build_chart_from_llm(request: ExcelAnalysisRequest):
+    """
+    Construit une spécification de graphique à partir d'une réponse LLM complète.
+    Gère le nouveau format <chart> tag généré par le LLM.
+
+    Args:
+        llm_response: Réponse complète du modèle LLM
+
+    Returns:
+        dict: Spécification de graphique au format JSON
+    """
+    try:
+        # Essayer d'abord le nouveau format <chart>
+        chart_spec = construire_graphe_from_chart_tag(request.llm_response)
+
+        if chart_spec:
+            return {
+                "status": "success",
+                "chart_spec": chart_spec
+            }
+
+        # Si le nouveau format échoue, essayer l'ancien format SQL
+        sql, chart_meta = extraire_sql_et_metadata(request.llm_response)
+        if sql and chart_meta:
+            # Pour l'ancien format, nous avons besoin de données - cela nécessiterait une exécution SQL
+            # Pour l'instant, retourner une erreur appropriée
+            return {
+                "status": "error",
+                "message": "Format de graphique SQL non encore implémenté dans ce endpoint"
+            }
+
+        return {
+            "status": "error",
+            "message": "Impossible de construire le graphique à partir de la réponse LLM"
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
