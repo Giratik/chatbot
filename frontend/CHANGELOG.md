@@ -1,3 +1,12 @@
+## Version en date du 05/06/2026
+### Combinaison des pages
+La page principale peut maintenant traiter les fichiers excel comme le faisait la page dédiée précédemment.  
+Il est conseillé de recharger la page après avoir fini de traiter un fichier excel pour libérer la mémoire, dans le cas ou vous voudriez continuer à discuter.
+
+### Sauvegarde des conversations
+Il est maintenant possible d'exporter sa conversation dans un fichier à télécharger pour plus tard la charger dans le chatbot et reprendre la conversation.
+
+
 ## Version en date du 20/05/2026
 ### Modèle IA
 Puisque le modèle d'IA utilisé à la capacité de raisonner, littéralement capable de s'interroger sur ce qu'il va répondre, on donne le choix à l'utilisateur d'activer la fonctionnalité car le mode raisonnement augmente le temps de génération de réponse proportionnellement à la demande.

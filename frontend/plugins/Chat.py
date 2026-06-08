@@ -19,9 +19,9 @@ def _render_sources(citations: list[str]) -> None:
             st.markdown(f"- 📄 {src}")
  
  
-def render_chat(cfg: dict) -> None:
+def render_rag_chat(cfg: dict) -> None:
     """Affiche la colonne de chat et exécute le pipeline RAG à chaque message."""
-    st.markdown("### 💬 Conversation")
+    #st.markdown("### 💬 Conversation")
  
     # ── Historique affiché ────────────────────────────────────────────────────
     for msg in st.session_state.messages:

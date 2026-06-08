@@ -11,9 +11,8 @@ Lancement :
 
 import streamlit as st
 from plugins.Styles import render_styles
-from plugins.Chunks import render_chunk_card, render_chunks_panel
-from plugins.Sidebar import render_sidebar
-from plugins.Chat import render_chat
+from plugins.Sidebar import render_save_chat
+from plugins.Chat import render_rag_chat
 
 
 # ─── PAGE CONFIG ──────────────────────────────────────────────────────────────
@@ -27,19 +26,26 @@ render_styles()
 def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    #st.sidebar.info("S'il y a des problèmes pour récupérer les fichiers, c'est un problème de pare-feu")
+    cfg = {
+    "collection": "dummy_rh",
+    "model": "gemma4:e4b",
+    "doc_date_filter": "",
+    "n_results": 250,
+    "seuil": 0.6,
+    "use_hyde": True,
+    "use_expansion": True,
+    "alpha": 0.5,
+    "use_reranker": False
+    }
+
+    #st.json (cfg)
  
-    cfg = render_sidebar()
- 
-    st.title("🤖 RAG Intégré — Chatbot + Visualisation Chunks")
- 
-    col_chat, col_chunks = st.columns([1.2, 1])
- 
-    with col_chat:
-        render_chat(cfg)
- 
-    with col_chunks:
-        render_chunks_panel()
- 
+    st.title("Chatbot spécialisé question RH")
+
+    render_rag_chat(cfg)
+
+    render_save_chat()  # Rendre le composant de sauvegarde du chat
  
 if __name__ == "__main__":
     main()
