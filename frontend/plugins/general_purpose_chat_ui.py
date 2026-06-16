@@ -1,10 +1,20 @@
-# chat_ui_v2.py - Chat Hybride avec Support Excel et SQL
+# chat_ui_v2.py - Interface de Chat Généraliste avec Support Multi-Fichiers
 """
 Version avancée du chat qui intègre:
-- Conversation standard (comme chat_ui.py)
-- Traitement des fichiers Excel (comme excel_analyst_ui.py)
+- Conversation standard pour demandes générales
+- Traitement des fichiers Excel, Word, PDF, etc.
 - Exécution SQL et génération de graphiques
 - Gestion unifiée de session
+
+Rôle dans l'architecture :
+- Composant principal utilisé par Main.py pour le chatbot généraliste
+- Alternative à Chat.py qui est spécialisé pour les questions RH
+- Fournit une interface unifiée pour l'analyse de données et le chat général
+
+Différence avec Chat.py (RAG) :
+- Ce fichier gère les demandes générales et l'analyse de fichiers
+- Chat.py utilise le pipeline RAG pour les questions spécifiques RH
+- Ce composant n'a pas besoin d'accès à une base de connaissances spécifique
 """
 
 import json
@@ -18,6 +28,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from mots_cle import (
+    COMPANY,
+    ACRONYME
+)
+
 # --- CONFIGURATION GLOBALE ---
 LOGO_PATH = "ressource/Eau_de_Paris_bleu.svg.png"
 API_URL = os.environ.get("API_URL", "http://backend:8000")
@@ -29,7 +44,10 @@ PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
 
 # --- GESTION DE SESSION UNIFIÉE ---
 def init_session_state():
-    """Initialise l'état de session pour le chat hybride."""
+    """
+    Initialise l'état de session pour le chat hybride.
+    Gère à la fois les variables de session standard et Excel.
+    """
     # Variables de session standard (chat)
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
@@ -53,9 +71,27 @@ def init_session_state():
         st.session_state.excel_mode = False
     if "current_excel_file" not in st.session_state:
         st.session_state.current_excel_file = None
+    if 'stage' not in st.session_state:
+        st.session_state.stage = 0
+    if "selected_sheet" not in st.session_state:
+        st.session_state.selected_sheet = None
+
+
+    if 'pending_excel_file' not in st.session_state:
+        st.session_state.pending_excel_file = None  # stocke les bytes du fichier en attente
+    if 'pending_excel_name' not in st.session_state:
+        st.session_state.pending_excel_name = None
+    if 'pending_sheet_names' not in st.session_state:
+        st.session_state.pending_sheet_names = []
+
+    if 'pending_user_query' not in st.session_state:
+        st.session_state.pending_user_query = None
 
 def reset_and_rerun():
-    """Réinitialise complètement la session."""
+    """
+    Réinitialise complètement la session.
+    Supprime toutes les données de session et recharge la page.
+    """
     if "session_id" in st.session_state:
         try:
             requests.delete(f"{API_URL}/session/{st.session_state.session_id}", timeout=3)
@@ -73,11 +109,25 @@ def reset_and_rerun():
     st.session_state.excel_bytes = None
     st.session_state.excel_name = None
     st.session_state.excel_sheet = None
+    st.session_state.stage = 0
+    st.session_state.selected_sheet = None
     st.rerun()
+
+def set_state(i):
+    st.session_state.stage = i
 
 # --- FONCTIONS EXCEL INTÉGRÉES (version locale comme excel_analyst_ui.py) ---
 def extraire_sql_et_metadata(llm_response: str) -> tuple[str | None, dict]:
-    """Extrait le SQL et les métadonnées de graphique - version locale."""
+    """
+    Extrait le SQL et les métadonnées de graphique d'une réponse LLM.
+    Utilisé pour générer des graphiques à partir des réponses du modèle.
+
+    Args:
+        llm_response: Réponse brute du modèle LLM
+
+    Returns:
+        tuple: (sql_query, chart_metadata) où sql_query peut être None
+    """
     sql_match = re.search(r"```sql\n(.*?)\n```", llm_response, re.DOTALL)
     if not sql_match:
         return None, {}
@@ -94,7 +144,18 @@ def extraire_sql_et_metadata(llm_response: str) -> tuple[str | None, dict]:
     return sql_pur, chart_meta
 
 def construire_graphe(df: pd.DataFrame, meta: dict) -> go.Figure | None:
-    """Construit un graphique localement - version simplifiée."""
+    """
+    Construit un graphique localement à partir d'un DataFrame et de métadonnées.
+
+    Args:
+        df: DataFrame contenant les données à visualiser
+        meta: Dictionnaire de métadonnées (CHART_TYPE, CHART_X, CHART_Y, etc.)
+
+    Returns:
+        go.Figure: Objet graphique Plotly ou None en cas d'erreur
+
+    Types de graphiques supportés: bar, line, pie, scatter
+    """
     chart_type = meta.get("CHART_TYPE", "bar").lower()
     x = meta.get("CHART_X")
     y = meta.get("CHART_Y")
@@ -125,7 +186,15 @@ def construire_graphe(df: pd.DataFrame, meta: dict) -> go.Figure | None:
         return None
 
 def executer_sql_backend(sql: str) -> pd.DataFrame | None:
-    """Exécute SQL via le backend - version simplifiée."""
+    """
+    Exécute SQL via le backend et retourne les résultats.
+
+    Args:
+        sql: Requête SQL à exécuter
+
+    Returns:
+        pd.DataFrame: Résultats de la requête ou None en cas d'erreur
+    """
     try:
         resp = requests.post(
             f"{API_URL}/execute_sql",
@@ -142,10 +211,79 @@ def executer_sql_backend(sql: str) -> pd.DataFrame | None:
         st.error(f"❌ Connexion backend : {e}")
         return None
 
+
+
+# --- FONCTION DE PARSING EXCEL ---
+def parse_and_load_excel():
+    """Envoie le fichier au backend et charge les tables. Appelé après sélection de l'onglet."""
+    import io
+    file_bytes = io.BytesIO(st.session_state.pending_excel_file)
+    
+    try:
+        resp = requests.post(
+            f"{API_URL}/parse_excel",
+            files={"file": (st.session_state.pending_excel_name, file_bytes)},
+            params={
+                "sheet_name": st.session_state.selected_sheet,
+                "session_id": st.session_state.session_id,
+            },
+            timeout=60,
+        )
+        data = resp.json()
+
+        if resp.status_code == 200 and data.get("status") == "success":
+            st.session_state.tables_info = data["tables"]
+            st.session_state.knowledge_ready = True
+            st.session_state.excel_sheet = st.session_state.selected_sheet
+
+            for table in data["tables"]:
+                try:
+                    r = requests.post(
+                        f"{API_URL}/execute_sql",
+                        json={
+                            "sql": f'SELECT * FROM "{table["name"]}"',
+                            "session_id": st.session_state.session_id,
+                        },
+                        timeout=30,
+                    )
+                    d = r.json()
+                    if d.get("status") == "success":
+                        st.session_state.tables_data[table["name"]] = pd.DataFrame(d["data"])
+                except Exception:
+                    pass
+            if st.session_state.get("pending_user_query"):
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": st.session_state.pending_user_query,
+                    "display_content": st.session_state.pending_user_query,
+                })
+                st.session_state.pending_user_query = None
+            st.session_state.messages.append({
+                "role": "assistant",
+                "display_content": f"✅ Fichier **{st.session_state.pending_excel_name}** chargé — {len(data['tables'])} table(s) disponible(s).\n\nVous pouvez à présent poser votre question sur le fichier. (Si vous aviez déjà entré une question, veuillez la poser à nouveau).",
+                "content": f"Fichier Excel {st.session_state.pending_excel_name} chargé avec succès. Tables disponibles : {[t['name'] for t in data['tables']]}",
+            })
+        else:
+            st.error(f"❌ Erreur chargement Excel: {data.get('message', 'Erreur inconnue')}")
+
+    except Exception as e:
+        st.error(f"❌ Erreur traitement Excel: {e}")
+
+    finally:
+        st.session_state.pending_excel_file = None
+        st.session_state.pending_sheet_names = []
+        st.session_state.stage = 0
+        st.session_state.pending_user_query = None
+
+
 # --- FONCTION PRINCIPALE DE CHAT HYBRIDE ---
-def render_general_purpose_chat(title="Chatbot EDP Hybride"):
+def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
     """
     Interface de chat avancée avec support Excel et SQL intégré.
+    Fonction principale utilisée par Main.py pour le chatbot généraliste.
+
+    Args:
+        title: Titre à afficher pour l'interface de chat
     """
     init_session_state()
 
@@ -189,20 +327,21 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
             st.info("📌 Chargez un fichier Excel pour activer l'analyse de données")
 
         st.divider()
-        st.caption("© Eau de Paris - Chatbot Avancé")
+        st.caption(f"© {COMPANY} - Chatbot Avancé")
 
     st.title(title)
 
     # 1. AFFICHAGE DE L'HISTORIQUE AVEC SUPPORT EXCEL
-# Dans la boucle d'affichage de l'historique
+    # Dans la boucle d'affichage de l'historique
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            display_content = re.sub(r"```sql\n.*?\n```\n?", "", message["display_content"], flags=re.DOTALL).strip()
+            raw = message.get("display_content") or message.get("content", "")
+            display_content = re.sub(r"```sql\n.*?\n```\n?", "", raw, flags=re.DOTALL).strip()
             st.markdown(display_content)
 
             if "plot" in message:
                 st.plotly_chart(message["plot"], use_container_width=True)
-            
+
             # ← Ajouter : reconstruire depuis chart_data
             if "chart_data" in message:
                 df = pd.DataFrame(message["chart_data"]["data"])
@@ -217,6 +356,28 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
 
             if "dataframe" in message:
                 st.dataframe(pd.DataFrame(message["dataframe"]), use_container_width=True)
+
+    # --- SÉLECTION D'ONGLET EXCEL ---
+    if st.session_state.stage == 1 and st.session_state.pending_sheet_names:
+        with st.chat_message("assistant"):
+            st.markdown("Quel onglet voulez-vous analyser ?")
+            onglet_choisi = st.radio(
+                "Sélectionnez un onglet :",
+                st.session_state.pending_sheet_names,
+                key="excel_sheet_choice",
+                label_visibility="collapsed"
+            )
+            if st.button("Confirmer", key="confirm_sheet_choice"):
+                st.session_state.selected_sheet = onglet_choisi
+                st.session_state.stage = 2
+                st.rerun()
+
+    # --- PARSING EXCEL ---
+    if st.session_state.stage == 2 and st.session_state.pending_excel_file:
+        st.sidebar.write("🔄 Parsing en cours...")  # à retirer après debug
+        with st.spinner("⏳ Chargement du fichier Excel..."):
+            parse_and_load_excel()
+        st.rerun()
 
     # 2. SAISIE UTILISATEUR AVEC SUPPORT FICHIERS ÉTENDU
     user_input = st.chat_input(
@@ -244,6 +405,32 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
                 if fichier_joint.name.lower().endswith('.xlsx'):
                     st.session_state.excel_mode = True
                     st.session_state.current_excel_file = fichier_joint.name
+
+                    if file_id != st.session_state.get("last_file_id"):
+                        st.session_state.messages = []
+                        st.session_state.knowledge_ready = False
+                        st.session_state.tables_info = None
+                        st.session_state.last_file_id = file_id
+                        st.session_state.tables_data = {}
+                        st.session_state.selected_sheet = None
+
+                        xls = pd.ExcelFile(fichier_joint)
+
+                        if len(xls.sheet_names) == 1:
+                            # Une seule feuille : on peut continuer directement
+                            st.session_state.selected_sheet = xls.sheet_names[0]
+                            st.session_state.pending_excel_file = fichier_joint.getbuffer().tobytes()
+                            st.session_state.pending_excel_name = fichier_joint.name
+                            st.session_state.stage = 2  # Prêt pour le parsing
+                        else:
+                            # Plusieurs feuilles : on stocke et on attend le choix
+                            st.session_state.pending_excel_file = fichier_joint.getbuffer().tobytes()
+                            st.session_state.pending_excel_name = fichier_joint.name
+                            st.session_state.pending_sheet_names = xls.sheet_names
+                            st.session_state.pending_user_query = user_input.text or None
+                            st.session_state.stage = 1  # En attente du choix d'onglet
+                            st.rerun()
+
                     excel_processed = True
 
                     # Initialiser la session Excel
@@ -258,7 +445,32 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
                         # Charger et analyser le fichier Excel
                         with st.spinner("⏳ Chargement du fichier Excel..."):
                             xls = pd.ExcelFile(fichier_joint)
-                            onglet_choisi = xls.sheet_names[0]  # Utiliser la première feuille par défaut
+
+                            # Sélection de la feuille Excel - approche simplifiée et corrigée
+                            if len(xls.sheet_names) == 1:
+                                # Si une seule feuille, l'utiliser directement
+                                onglet_choisi = xls.sheet_names[0]
+                            else:
+                                # Si plusieurs feuilles, demander à l'utilisateur
+                                with st.chat_message("assistant"):
+                                    st.markdown("Quel onglet voulez-vous traiter ?")
+                                    onglet_choisi = st.radio(
+                                        "Sélectionnez un onglet:",
+                                        xls.sheet_names,
+                                        key="excel_sheet_choice",
+                                        label_visibility="collapsed"
+                                    )
+
+                                    if st.button("Confirmer le choix", key="confirm_sheet_choice"):
+                                        st.session_state.selected_sheet = onglet_choisi
+                                        st.rerun()
+
+                                # Si l'utilisateur a déjà fait un choix, l'utiliser
+                                if st.session_state.get("selected_sheet"):
+                                    onglet_choisi = st.session_state.selected_sheet
+                                else:
+                                    # Pas encore de choix, arrêter le traitement ici
+                                    st.stop()
 
                             # Envoyer au backend pour parsing
                             fichier_joint.seek(0)
@@ -276,9 +488,9 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
                             if resp.status_code == 200 and data.get("status") == "success":
                                 st.session_state.tables_info = data["tables"]
                                 st.session_state.knowledge_ready = True
-                                st.session_state.excel_bytes = fichier_joint.getbuffer().tobytes()  # ← ajouter
-                                st.session_state.excel_name = fichier_joint.name                    # ← ajouter
-                                st.session_state.excel_sheet = onglet_choisi   
+                                st.session_state.excel_bytes = fichier_joint.getbuffer().tobytes()
+                                st.session_state.excel_name = fichier_joint.name
+                                st.session_state.excel_sheet = onglet_choisi
                                 # Charger les données des tables
                                 for table in data["tables"]:
                                     try:
@@ -330,9 +542,6 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
         elif isinstance(user_input, str):
             user_text = user_input
 
-        #st.sidebar.write(f"excel_bytes={bool(st.session_state.get('excel_bytes'))} knowledge_ready={st.session_state.knowledge_ready}")
-
-
         # Restauration automatique si session DuckDB perdue
         if st.session_state.get("excel_bytes") and not st.session_state.knowledge_ready:
             with st.spinner("🔄 Restauration de la session Excel..."):
@@ -374,7 +583,10 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
             "content": llm_text
         })
 
-        messages_pour_api = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+        messages_pour_api = [
+            {"role": m["role"], "content": m.get("content") or m.get("display_content", "")}
+            for m in st.session_state.messages
+        ]
 
         with st.chat_message("user"):
             st.markdown(display_text)
@@ -421,7 +633,6 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
                     yield f"❌ Erreur de connexion : {str(e)}"
 
             full_response = st.write_stream(lire_flux_api())
-            #st.code(repr(full_response[:300]))
             st.caption(f"⏱️ {time.time() - start_time:.2f}s")
 
             # --- D. TRAITEMENT POST-RÉPONSE (EXCEL) ---
@@ -434,7 +645,6 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
             # Si nous sommes en mode Excel et que des métadonnées SQL sont présentes
             if st.session_state.knowledge_ready:
                 sql, chart_meta = extraire_sql_et_metadata(full_response)
-                
 
                 if sql and chart_meta:
                     with st.spinner("📊 Construction du graphe..."):
@@ -467,3 +677,4 @@ def render_general_purpose_chat(title="Chatbot EDP Hybride"):
                             )
 
         st.session_state.messages.append(message_assistant)
+        st.rerun()

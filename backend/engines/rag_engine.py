@@ -252,7 +252,7 @@ def retrieve_context_hybrid(
     ranked_with_rerank = [(*item, 0.0) for item in ranked[:n_results]]
 
 
-    # ── Construction des résultats ────────────────────────────────────────────
+# ── Construction des résultats ────────────────────────────────────────────
     contexts: list[str] = []
     sources: list[tuple] = []
     detailed_chunks: list[dict] = []
@@ -261,6 +261,13 @@ def retrieve_context_hybrid(
     for hybrid_score, vecto_dist, bm25_score, doc, meta, rerank_score in ranked_with_rerank:
         if "source" in meta and "page" in meta:
             source_name = f"📄 {meta['source']} (Page {meta['page']})"
+            
+            # ⬅️ NOUVEAU : Récupération et formatage de l'URL si elle existe
+            source_url = meta.get("source_url", "").strip()
+            if source_url:
+                # Format Markdown cliquable pour Streamlit
+                source_name += f" — [Ouvrir le lien]({source_url})"
+                
             chunk_type = "pdf"
             doc_date = meta.get("doc_date", "")
         elif "acronyme" in meta:
@@ -292,23 +299,17 @@ def retrieve_context_hybrid(
             "bm25_score": bm25_score,
             "doc_date": doc_date,
             "rerank_score": rerank_score,
+            "source_url": meta.get("source_url", ""), # ⬅️ NOUVEAU : Ajout aux détails
         })
 
     return contexts, sources, detailed_chunks
 
 
 # ─── GÉNÉRATION LLM ───────────────────────────────────────────────────────────
+from core.config import RAG_SYSTEM_PROMPT
 
 def build_system_prompt(context_str: str) -> str:
-    return f"""Tu es un assistant IA expert, concis et professionnel.
-Ta mission est de répondre à la question de l'utilisateur en utilisant UNIQUEMENT le contexte fourni ci-dessous.
-Si la réponse n'est pas dans le contexte, dis poliment "Je ne trouve pas cette information dans les documents fournis", et n'invente rien.
-Réponds en français.
-
-RÈGLES IMPORTANTES :
-- Nous sommes en Juin 2026.
-- Les dates des documents sont indiquées entre crochets [Document du YYYY-MM-DD].
-- Si plusieurs documents traitent le même sujet avec des dates différentes, PRIORISE TOUJOURS le document le plus récent et considère les autres comme caduques.
+    return f""" {RAG_SYSTEM_PROMPT}
 
 CONTEXTE :
 {context_str}

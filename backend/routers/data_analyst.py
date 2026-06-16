@@ -18,6 +18,11 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from utils.excel_utils import extraire_sql_et_metadata, construire_graphe, construire_graphe_from_chart_tag, executer_sql_backend, analyser_reponse_excel
 
+from core.mots_cle import (
+    COMPANY,
+    NAME_TOOL
+)
+
 router = APIRouter(tags=["Data Analyst"])
 
 
@@ -203,7 +208,7 @@ Ne mentionne jamais SQL dans ta réponse."""
         graphique_extra = """
 Si un graphique est demandé, décris brièvement ce que le graphique va montrer.""" if is_graphique else ""
 
-        system_synthese = f"""Tu es EDP-IA, assistant de Eau de Paris.
+        system_synthese = f"""Tu es {NAME_TOOL}, assistant de {COMPANY}.
 Tu viens d'interroger les données Excel de l'utilisateur. Voici les résultats :
 
 {data_context}

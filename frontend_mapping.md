@@ -65,7 +65,7 @@ graph TD
      - `render_styles` depuis `plugins/Styles.py`
      - `render_save_chat` depuis `plugins/Sidebar.py`
      - `render_rag_chat` depuis `plugins/Chat.py`
-   - **Rôle** : Interface spécialisée pour les questions RH de Eau de Paris
+   - **Rôle** : Interface spécialisée pour les questions RH
 
 ### Composants réutilisables
 

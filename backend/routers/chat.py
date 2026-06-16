@@ -90,5 +90,3 @@ async def generer_chat(requete: ChatRequest):
         return StreamingResponse(stream_generator(), media_type="text/plain")
     except Exception as e:
         print(f"Erreur /chat : {str(e)}")
-
-# The RAG‑specific endpoint has been moved to a dedicated router in `chat_rag.py`.

@@ -6,7 +6,6 @@ Description : Fonctions utilitaires pour le traitement des données Excel et la 
 import re
 import pandas as pd
 from typing import Optional, Dict, Any
-import json
 import plotly.express as px
 import plotly.graph_objects as go
 from fastapi import HTTPException
