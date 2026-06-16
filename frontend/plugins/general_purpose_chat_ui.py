@@ -86,6 +86,8 @@ def init_session_state():
 
     if 'pending_user_query' not in st.session_state:
         st.session_state.pending_user_query = None
+    if 'query_to_execute' not in st.session_state:
+        st.session_state.query_to_execute = None
 
 def reset_and_rerun():
     """
@@ -252,15 +254,12 @@ def parse_and_load_excel():
                 except Exception:
                     pass
             if st.session_state.get("pending_user_query"):
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": st.session_state.pending_user_query,
-                    "display_content": st.session_state.pending_user_query,
-                })
-                st.session_state.pending_user_query = None
+                # Transmettre la query pour exécution après le rerun, sans l'ajouter
+                # à l'historique ici — ce sera fait par la boucle principale
+                st.session_state.query_to_execute = st.session_state.pending_user_query
             st.session_state.messages.append({
                 "role": "assistant",
-                "display_content": f"✅ Fichier **{st.session_state.pending_excel_name}** chargé — {len(data['tables'])} table(s) disponible(s).\n\nVous pouvez à présent poser votre question sur le fichier. (Si vous aviez déjà entré une question, veuillez la poser à nouveau).",
+                "display_content": f"✅ Fichier **{st.session_state.pending_excel_name}** chargé — {len(data['tables'])} table(s) disponible(s).",
                 "content": f"Fichier Excel {st.session_state.pending_excel_name} chargé avec succès. Tables disponibles : {[t['name'] for t in data['tables']]}",
             })
         else:
@@ -274,6 +273,8 @@ def parse_and_load_excel():
         st.session_state.pending_sheet_names = []
         st.session_state.stage = 0
         st.session_state.pending_user_query = None
+        # NB: query_to_execute est intentionnellement conservé ici —
+        # il sera consommé par la boucle principale après le rerun.
 
 
 # --- FONCTION PRINCIPALE DE CHAT HYBRIDE ---
@@ -380,11 +381,18 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         st.rerun()
 
     # 2. SAISIE UTILISATEUR AVEC SUPPORT FICHIERS ÉTENDU
-    user_input = st.chat_input(
-        "Votre message... (ou glissez-déposez des fichiers)",
-        accept_file=True,
-        file_type=["pdf", "txt", "md", "docx", "pptx", "jpg", "webp", "png", "xlsx"],
-    )
+    # Si une query a été mise en attente pendant le chargement Excel multi-onglets,
+    # on la récupère et on la traite comme si l'utilisateur venait de la saisir.
+    _deferred_query = st.session_state.get("query_to_execute")
+    if _deferred_query:
+        st.session_state.query_to_execute = None
+        user_input = _deferred_query  # str — sera géré par la branche `isinstance(user_input, str)`
+    else:
+        user_input = st.chat_input(
+            "Votre message... (ou glissez-déposez des fichiers)",
+            accept_file=True,
+            file_type=["pdf", "txt", "md", "docx", "pptx", "jpg", "webp", "png", "xlsx"],
+        )
 
     # 3. TRAITEMENT DE L'ENTRÉE UTILISATEUR
     if user_input:
