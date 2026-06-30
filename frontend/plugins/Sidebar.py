@@ -105,8 +105,7 @@ def render_save_chat():
     - Gestion des erreurs de format
     """
     with st.sidebar:
-        st.info("L'erreur KeyError: 'display_content' est normale lors d'un changement de chat à un autre, les deux fenêtres de chats n'ont pas un affichage compatible. Il faut recharger la page/commencer une nouvelle conversation.")
-        # ==========================================
+        
         # Sauvegarde et Chargement (JSON)
         # =========================================
         st.markdown("**💾 Sauvegarde & Historique**")

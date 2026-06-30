@@ -1,3 +1,8 @@
+## Version en date du 17/06/2026
+### Page chatbot RH déplacée
+La page du chatbot dédiée aux documents RH a été déplacée [ici](http://10.75.12.10:8503)
+
+
 ## Version en date du 05/06/2026
 ### Combinaison des pages
 La page principale peut maintenant traiter les fichiers excel comme le faisait la page dédiée précédemment.  

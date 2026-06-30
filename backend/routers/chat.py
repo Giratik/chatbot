@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 
-router = APIRouter(tags=["Chat & RAG"])
+router = APIRouter(tags=["Chat"])
 
 
 

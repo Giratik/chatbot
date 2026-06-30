@@ -21,11 +21,6 @@ COPY requirements_backend.txt .
 RUN pip install --no-cache-dir -r requirements_backend.txt
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='fr', use_angle_cls=True, use_gpu=True)"
 
-#RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
-
-# Suppression de la ligne SpaCy si inutile
-# RUN python -m spacy download fr_core_news_sm 
-
 COPY . .
 
 EXPOSE 8000

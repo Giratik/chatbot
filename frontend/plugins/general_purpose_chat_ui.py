@@ -253,15 +253,14 @@ def parse_and_load_excel():
                         st.session_state.tables_data[table["name"]] = pd.DataFrame(d["data"])
                 except Exception:
                     pass
+            # Utiliser la query de l'utilisateur si elle existe, sinon l'instruction
+            # par défaut — dans les deux cas, ce sera traité comme dans le flux normal
+            # (1 seul appel LLM, pas de message de confirmation séparé qui dupliquerait
+            # ce que le LLM va lui-même répondre).
             if st.session_state.get("pending_user_query"):
-                # Transmettre la query pour exécution après le rerun, sans l'ajouter
-                # à l'historique ici — ce sera fait par la boucle principale
                 st.session_state.query_to_execute = st.session_state.pending_user_query
-            st.session_state.messages.append({
-                "role": "assistant",
-                "display_content": f"✅ Fichier **{st.session_state.pending_excel_name}** chargé — {len(data['tables'])} table(s) disponible(s).",
-                "content": f"Fichier Excel {st.session_state.pending_excel_name} chargé avec succès. Tables disponibles : {[t['name'] for t in data['tables']]}",
-            })
+            else:
+                st.session_state.query_to_execute = "Prends connaissance du fichier joint et attends mes instructions."
         else:
             st.error(f"❌ Erreur chargement Excel: {data.get('message', 'Erreur inconnue')}")
 
@@ -293,7 +292,6 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
 
     # --- SIDEBAR UNIFIÉ ---
     with st.sidebar:
-        st.title("💬📊 Chat Hybride")
 
         # Contrôles standard
         st.session_state.think_mode = st.toggle(
@@ -308,7 +306,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         st.divider()
 
         # Section Excel (toujours visible mais désactivée si pas de fichier)
-        st.subheader("📊 Analyse Excel")
+ 
 
         # Afficher l'état actuel du fichier
         if st.session_state.current_excel_file:
@@ -325,10 +323,10 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
                 st.warning(f"⚠️ Fichier chargé: {st.session_state.current_excel_file}")
                 st.caption("Chargement en cours...")
         else:
-            st.info("📌 Chargez un fichier Excel pour activer l'analyse de données")
+            st.info("Si vous uploadez un excel, son contenu s'affichera ici.")
 
         st.divider()
-        st.caption(f"© {COMPANY} - Chatbot Avancé")
+        st.caption(f"© {COMPANY} - Chatbot EDP-IA")
 
     st.title(title)
 
@@ -429,6 +427,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
                             st.session_state.selected_sheet = xls.sheet_names[0]
                             st.session_state.pending_excel_file = fichier_joint.getbuffer().tobytes()
                             st.session_state.pending_excel_name = fichier_joint.name
+                            st.session_state.pending_user_query = user_input.text or None
                             st.session_state.stage = 2  # Prêt pour le parsing
                         else:
                             # Plusieurs feuilles : on stocke et on attend le choix
@@ -440,93 +439,12 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
                             st.rerun()
 
                     excel_processed = True
-
-                    # Initialiser la session Excel
-                    if file_id != st.session_state.get("last_file_id"):
-                        st.session_state.messages = []
-                        st.session_state.knowledge_ready = False
-                        st.session_state.tables_info = None
-                        st.session_state.last_file_id = file_id
-                        st.session_state.tables_data = {}
-
-                    try:
-                        # Charger et analyser le fichier Excel
-                        with st.spinner("⏳ Chargement du fichier Excel..."):
-                            xls = pd.ExcelFile(fichier_joint)
-
-                            # Sélection de la feuille Excel - approche simplifiée et corrigée
-                            if len(xls.sheet_names) == 1:
-                                # Si une seule feuille, l'utiliser directement
-                                onglet_choisi = xls.sheet_names[0]
-                            else:
-                                # Si plusieurs feuilles, demander à l'utilisateur
-                                with st.chat_message("assistant"):
-                                    st.markdown("Quel onglet voulez-vous traiter ?")
-                                    onglet_choisi = st.radio(
-                                        "Sélectionnez un onglet:",
-                                        xls.sheet_names,
-                                        key="excel_sheet_choice",
-                                        label_visibility="collapsed"
-                                    )
-
-                                    if st.button("Confirmer le choix", key="confirm_sheet_choice"):
-                                        st.session_state.selected_sheet = onglet_choisi
-                                        st.rerun()
-
-                                # Si l'utilisateur a déjà fait un choix, l'utiliser
-                                if st.session_state.get("selected_sheet"):
-                                    onglet_choisi = st.session_state.selected_sheet
-                                else:
-                                    # Pas encore de choix, arrêter le traitement ici
-                                    st.stop()
-
-                            # Envoyer au backend pour parsing
-                            fichier_joint.seek(0)
-                            resp = requests.post(
-                                f"{API_URL}/parse_excel",
-                                files={"file": (fichier_joint.name, fichier_joint.getbuffer())},
-                                params={
-                                    "sheet_name": onglet_choisi,
-                                    "session_id": st.session_state.session_id,
-                                },
-                                timeout=60,
-                            )
-                            data = resp.json()
-
-                            if resp.status_code == 200 and data.get("status") == "success":
-                                st.session_state.tables_info = data["tables"]
-                                st.session_state.knowledge_ready = True
-                                st.session_state.excel_bytes = fichier_joint.getbuffer().tobytes()
-                                st.session_state.excel_name = fichier_joint.name
-                                st.session_state.excel_sheet = onglet_choisi
-                                # Charger les données des tables
-                                for table in data["tables"]:
-                                    try:
-                                        r = requests.post(
-                                            f"{API_URL}/execute_sql",
-                                            json={
-                                                "sql": f'SELECT * FROM "{table["name"]}"',
-                                                "session_id": st.session_state.session_id,
-                                            },
-                                            timeout=30,
-                                        )
-                                        d = r.json()
-                                        if d.get("status") == "success":
-                                            st.session_state.tables_data[table["name"]] = pd.DataFrame(d["data"])
-                                    except Exception:
-                                        pass
-
-                                st.success(f"✅ Fichier Excel chargé: {len(data['tables'])} table(s) détectée(s)")
-                                conversation_contexte += f"📊 **Données Excel chargées :** {fichier_joint.name} - {len(data['tables'])} table(s) disponibles pour analyse SQL\n\n"
-
-                            else:
-                                st.error(f"❌ Erreur chargement Excel: {data.get('message', 'Erreur inconnue')}")
-                                conversation_contexte += f"⚠️ **Erreur chargement Excel :** {fichier_joint.name}\n\n"
-
-                    except Exception as e:
-                        st.sidebar.error(f"❌ Erreur traitement Excel: {e}")
-                        conversation_contexte += f"⚠️ **Erreur traitement Excel :** {fichier_joint.name} - {str(e)}\n\n"
-                        excel_processed = False
+                    # NB : le chargement effectif (parsing, tables, appel LLM) est
+                    # entièrement géré par le pipeline stage/pending_* ci-dessus
+                    # (cas 1 feuille → stage=2 ; cas multi-feuilles → stage=1 puis
+                    # rerun déjà effectué). On ne refait pas le parsing ici pour
+                    # éviter un double traitement et une double réponse du LLM.
+                    st.rerun()
 
                 # TRAITEMENT DES AUTRES TYPES DE FICHIERS (comme dans chat_ui.py original)
                 else:
