@@ -1,3 +1,4 @@
+
 ## Version en date du 17/06/2026
 ### Page chatbot RH déplacée
 La page du chatbot dédiée aux documents RH a été déplacée [ici](http://10.75.12.10:8503)
@@ -21,7 +22,7 @@ Puisque le modèle d'IA utilisé à la capacité de raisonner, littéralement ca
 ### Changement de modèle IA
 On passe de ministral-3:14b (modèle de mistral) à gemma4:e4b (modèle de google) toujours en local.
 Gain de perfomances phénoménale en échange de quleques secondes de latence supplémentaires :
-- On passe de 12288 token de contexte à 30000
+- On passe de 12288 token de contexte à 25000
 - On peut augmenter le nombre d'instance en parallèle
 
 Tout ça en consommant à peine la moité de la mémoire GPU

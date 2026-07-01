@@ -294,11 +294,11 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
     with st.sidebar:
 
         # Contrôles standard
-        st.session_state.think_mode = st.toggle(
-            "Mode raisonnement",
-            value=st.session_state.think_mode,
-            help="Active le mode 'raisonnement' des modèles"
-        )
+        #st.session_state.think_mode = st.toggle(
+        #    "Mode raisonnement",
+        #    value=st.session_state.think_mode,
+        #    help="Active le mode 'raisonnement' des modèles"
+        #)
 
         if st.button("Nouvelle session", use_container_width=True):
             reset_and_rerun()
@@ -489,7 +489,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         if st.session_state.knowledge_ready:
             mode = "graphique"
             endpoint = f"{API_URL}/chat_data_analyst"
-            context_size = 30000
+            context_size = 25000
             temperature = 0.4
         else:
             mode = "discussion"
