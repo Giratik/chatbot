@@ -19,6 +19,9 @@ import chromadb
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
 
+import numpy as np
+from sklearn.cluster import DBSCAN
+
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 # Répertoire temp pour les fichiers Parquet (nettoyé à chaque nouvelle session)
@@ -97,106 +100,180 @@ def obtenir_masque_densite(df: pl.DataFrame):
     return df.select(pl.all().is_not_null())
 
 
-def identifier_ilots_donnees(df: pl.DataFrame) -> list[dict]:
+#def identifier_ilots_donnees(df: pl.DataFrame) -> list[dict]:
+#    """
+#    Identifie les coordonnées (lignes/colonnes) des blocs de données.
+#    ✅ Considère aussi les COLONNES vides comme des séparateurs (tableaux alignés horizontalement).
+#    """
+#    if df.is_empty():
+#        return []
+#
+#    # 1. Création du masque de présence
+#    masque = df.select([
+#        pl.all().is_not_null() & (pl.all().cast(pl.Utf8) != "")
+#    ])
+#
+#    # 2. Analyse des lignes pleines (au moins une valeur non-null)
+#    lignes_pleines = masque.select(pl.any_horizontal(pl.all())).to_series().to_list()
+#    
+#    blocs = []
+#    start_row = None
+#    
+#    for i, est_pleine in enumerate(lignes_pleines):
+#        if est_pleine and start_row is None:
+#            start_row = i
+#        elif not est_pleine and start_row is not None:
+#            # ✅ Fin d'un bloc vertical
+#            df_temp = masque.slice(start_row, i - start_row)
+#            
+#            # Trouver les colonnes qui ont des données dans CE bloc
+#            cols_with_data = [
+#                j for j in range(len(df_temp.columns))
+#                if df_temp[df_temp.columns[j]].any()
+#            ]
+#            
+#            if cols_with_data:
+#                # ✅ Créer des sous-blocs en groupant les colonnes contiguës
+#                # (séparation par colonnes vides)
+#                start_col = cols_with_data[0]
+#                
+#                for idx in range(len(cols_with_data)):
+#                    curr_col = cols_with_data[idx]
+#                    next_col = cols_with_data[idx + 1] if idx + 1 < len(cols_with_data) else None
+#                    
+#                    # Vérifier s'il y a un trou (colonne vide) après curr_col
+#                    if next_col is not None and next_col - curr_col > 1:
+#                        # Trou = fin d'un bloc horizontal
+#                        end_col = curr_col + 1
+#                        blocs.append({
+#                            "start_row": start_row,
+#                            "end_row": i,
+#                            "start_col": start_col,
+#                            "end_col": end_col
+#                        })
+#                        start_col = next_col
+#                
+#                # Ajouter le dernier sous-bloc
+#                if start_col is not None:
+#                    end_col = cols_with_data[-1] + 1
+#                    blocs.append({
+#                        "start_row": start_row,
+#                        "end_row": i,
+#                        "start_col": start_col,
+#                        "end_col": end_col
+#                    })
+#            
+#            start_row = None
+#    
+#    # Gestion du dernier bloc
+#    if start_row is not None:
+#        df_temp = masque.slice(start_row, len(masque) - start_row)
+#        cols_with_data = [
+#            j for j in range(len(df_temp.columns))
+#            if df_temp[df_temp.columns[j]].any()
+#        ]
+#        
+#        if cols_with_data:
+#            # Même logique
+#            start_col = cols_with_data[0]
+#            
+#            for idx in range(len(cols_with_data)):
+#                curr_col = cols_with_data[idx]
+#                next_col = cols_with_data[idx + 1] if idx + 1 < len(cols_with_data) else None
+#                
+#                if next_col is not None and next_col - curr_col > 1:
+#                    end_col = curr_col + 1
+#                    blocs.append({
+#                        "start_row": start_row,
+#                        "end_row": len(masque),
+#                        "start_col": start_col,
+#                        "end_col": end_col
+#                    })
+#                    start_col = next_col
+#            
+#            if start_col is not None:
+#                end_col = cols_with_data[-1] + 1
+#                blocs.append({
+#                    "start_row": start_row,
+#                    "end_row": len(masque),
+#                    "start_col": start_col,
+#                    "end_col": end_col
+#                })
+#
+#    return blocs
+
+
+
+
+def identifier_ilots_dbscan(df: pl.DataFrame, eps_distance: float = 2.0, min_cells: int = 4) -> list[dict]:
     """
-    Identifie les coordonnées (lignes/colonnes) des blocs de données.
-    ✅ Considère aussi les COLONNES vides comme des séparateurs (tableaux alignés horizontalement).
+    Identifie les blocs de données (tableaux) en utilisant le clustering spatial DBSCAN.
+    
+    Args:
+        df: DataFrame Polars représentant la feuille Excel.
+        eps_distance: Distance maximale entre deux cellules pour appartenir au même tableau.
+                      Avec la métrique 'chebyshev', eps=2.0 autorise un trou d'une ligne ou colonne vide.
+        min_cells: Nombre minimum de cellules non vides pour former un tableau (filtre le bruit).
     """
     if df.is_empty():
         return []
 
-    # 1. Création du masque de présence
-    masque = df.select([
-        pl.all().is_not_null() & (pl.all().cast(pl.Utf8) != "")
-    ])
-
-    # 2. Analyse des lignes pleines (au moins une valeur non-null)
-    lignes_pleines = masque.select(pl.any_horizontal(pl.all())).to_series().to_list()
+    # 1. Conversion en matrice Numpy pour le traitement matriciel
+    # Remplacer les valeurs nulles par une chaîne vide pour un traitement uniforme
+    df_filled = df.fill_null("")
+    data_matrix = df_filled.to_numpy()
     
-    blocs = []
-    start_row = None
-    
-    for i, est_pleine in enumerate(lignes_pleines):
-        if est_pleine and start_row is None:
-            start_row = i
-        elif not est_pleine and start_row is not None:
-            # ✅ Fin d'un bloc vertical
-            df_temp = masque.slice(start_row, i - start_row)
-            
-            # Trouver les colonnes qui ont des données dans CE bloc
-            cols_with_data = [
-                j for j in range(len(df_temp.columns))
-                if df_temp[df_temp.columns[j]].any()
-            ]
-            
-            if cols_with_data:
-                # ✅ Créer des sous-blocs en groupant les colonnes contiguës
-                # (séparation par colonnes vides)
-                start_col = cols_with_data[0]
+    # 2. Extraire les coordonnées (x, y) des cellules non vides
+    coords = []
+    for r in range(data_matrix.shape[0]):
+        for c in range(data_matrix.shape[1]):
+            val = data_matrix[r, c]
+            if val is not None and str(val).strip() != "":
+                coords.append([r, c])
                 
-                for idx in range(len(cols_with_data)):
-                    curr_col = cols_with_data[idx]
-                    next_col = cols_with_data[idx + 1] if idx + 1 < len(cols_with_data) else None
-                    
-                    # Vérifier s'il y a un trou (colonne vide) après curr_col
-                    if next_col is not None and next_col - curr_col > 1:
-                        # Trou = fin d'un bloc horizontal
-                        end_col = curr_col + 1
-                        blocs.append({
-                            "start_row": start_row,
-                            "end_row": i,
-                            "start_col": start_col,
-                            "end_col": end_col
-                        })
-                        start_col = next_col
-                
-                # Ajouter le dernier sous-bloc
-                if start_col is not None:
-                    end_col = cols_with_data[-1] + 1
-                    blocs.append({
-                        "start_row": start_row,
-                        "end_row": i,
-                        "start_col": start_col,
-                        "end_col": end_col
-                    })
-            
-            start_row = None
-    
-    # Gestion du dernier bloc
-    if start_row is not None:
-        df_temp = masque.slice(start_row, len(masque) - start_row)
-        cols_with_data = [
-            j for j in range(len(df_temp.columns))
-            if df_temp[df_temp.columns[j]].any()
-        ]
+    if not coords:
+        return []
         
-        if cols_with_data:
-            # Même logique
-            start_col = cols_with_data[0]
+    coords = np.array(coords)
+    
+    # 3. Application de DBSCAN
+    # La métrique 'chebyshev' correspond au déplacement sur une grille (Distance de l'échiquier)
+    clustering = DBSCAN(
+        eps=eps_distance, 
+        min_samples=min_cells, 
+        metric='chebyshev'
+    ).fit(coords)
+    
+    labels = clustering.labels_
+    
+    # 4. Construire les boîtes englobantes (bounding boxes) pour chaque cluster
+    blocs = []
+    unique_labels = set(labels)
+    
+    for label in unique_labels:
+        # Le label -1 correspond au bruit (cellules isolées) ignoré par DBSCAN
+        if label == -1:
+            continue 
             
-            for idx in range(len(cols_with_data)):
-                curr_col = cols_with_data[idx]
-                next_col = cols_with_data[idx + 1] if idx + 1 < len(cols_with_data) else None
-                
-                if next_col is not None and next_col - curr_col > 1:
-                    end_col = curr_col + 1
-                    blocs.append({
-                        "start_row": start_row,
-                        "end_row": len(masque),
-                        "start_col": start_col,
-                        "end_col": end_col
-                    })
-                    start_col = next_col
-            
-            if start_col is not None:
-                end_col = cols_with_data[-1] + 1
-                blocs.append({
-                    "start_row": start_row,
-                    "end_row": len(masque),
-                    "start_col": start_col,
-                    "end_col": end_col
-                })
-
+        # Coordonnées des points appartenant à ce cluster
+        cluster_coords = coords[labels == label]
+        
+        # Trouver les limites du tableau
+        min_row = int(np.min(cluster_coords[:, 0]))
+        max_row = int(np.max(cluster_coords[:, 0]))
+        min_col = int(np.min(cluster_coords[:, 1]))
+        max_col = int(np.max(cluster_coords[:, 1]))
+        
+        blocs.append({
+            "start_row": min_row,
+            "end_row": max_row + 1,  # +1 car les slices Python/Polars excluent la borne supérieure
+            "start_col": min_col,
+            "end_col": max_col + 1
+        })
+        
+    # Optionnel : Trier les blocs de haut en bas, puis de gauche à droite
+    blocs.sort(key=lambda x: (x["start_row"], x["start_col"]))
+    
     return blocs
 
 
@@ -297,7 +374,7 @@ def find_tables_in_sheet(uploaded_file, sheet_name: str):
         )
 
         # 1. Scan des îlots
-        ilots = identifier_ilots_donnees(df_raw.drop("original_excel_row"))
+        ilots = identifier_ilots_dbscan(df_raw.drop("original_excel_row"))
         
         tables_found = []
         for i, coord in enumerate(ilots):

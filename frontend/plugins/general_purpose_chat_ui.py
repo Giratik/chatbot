@@ -38,7 +38,7 @@ LOGO_PATH = "ressource/Eau_de_Paris_bleu.svg.png"
 API_URL = os.environ.get("API_URL", "http://backend:8000")
 DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "ministral-3:14b")
 DEFAULT_VLM = os.environ.get("DEFAULT_VLM", "ministral-3:14b")
-CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 12288))
+CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", 0.3))
 PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
 
@@ -489,7 +489,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         if st.session_state.knowledge_ready:
             mode = "graphique"
             endpoint = f"{API_URL}/chat_data_analyst"
-            context_size = 25000
+            context_size = CONTEXT_SIZE
             temperature = 0.4
         else:
             mode = "discussion"

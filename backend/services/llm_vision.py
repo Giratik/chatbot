@@ -12,6 +12,7 @@ from ollama import Client
 import time
 #from metrics import llm_latency, llm_tokens_generated
 
+CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
 # Utilise la même variable d'env que ollama_client.py
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 #CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
@@ -45,7 +46,7 @@ def analyse_image(image_bytes, prompt, model):
             model=model,
             options={
                 "temperature": 0.4,
-                "num_ctx":25000,
+                "num_ctx":CONTEXT_SIZE,
             },
             messages=[
                 {

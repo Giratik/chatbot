@@ -79,3 +79,7 @@ flashrank>=0.2.1
 
 # Excel utilities dependencies
 plotly==6.6.0
+
+
+
+scikit-learn
