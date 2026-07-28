@@ -35,8 +35,8 @@ client = Client(
     )
 )
 
-DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "mistral:7b")
-CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 12288))
+DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "gemma4:e4b")
+CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", 0.4))
 
 # ==================== PaddleOCR INITIALIZATION ====================

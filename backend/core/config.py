@@ -71,7 +71,7 @@ Si la réponse n'est pas dans le contexte, dis poliment "Je ne trouve pas cette 
 Réponds en français.
 
 RÈGLES IMPORTANTES :
-- Nous sommes en Juin 2026.
+- Nous sommes en juillet 2026.
 - Les dates des documents sont indiquées entre crochets [Document du YYYY-MM-DD].
 - Si plusieurs documents traitent le même sujet avec des dates différentes, PRIORISE TOUJOURS le document le plus récent et considère les autres comme caduques.
 """

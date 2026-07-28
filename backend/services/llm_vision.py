@@ -10,12 +10,9 @@ import os
 import httpx
 from ollama import Client
 import time
-#from metrics import llm_latency, llm_tokens_generated
 
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
-# Utilise la même variable d'env que ollama_client.py
 URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-#CONTEXT_SIZE = os.environ.get("CONTEXT_SIZE", 12288)
 client = Client(
     host=URL_OLLAMA,
     timeout=httpx.Timeout(

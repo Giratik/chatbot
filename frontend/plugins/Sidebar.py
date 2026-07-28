@@ -1,17 +1,4 @@
-"""
-plugins/Sidebar.py - Composant de Sidebar et Sauvegarde
-──────────────────────────────────────────────────────
-Rôle : Fournit des composants réutilisables pour la sidebar et la gestion des conversations
-
-Ce module contient deux fonctions principales :
-1. render_sidebar() - Configuration RAG (non utilisée actuellement dans Main.py)
-2. render_save_chat() - Sauvegarde/restauration des conversations (utilisée partout)
-
-Architecture :
-- Utilisé par Main.py et Chatbot_RH.py pour la sauvegarde des conversations
-- render_sidebar() pourrait être utilisée pour une configuration RAG avancée
-- Dépend de APIclient.py pour la configuration RAG
-"""
+# frontend/plugins/Sidebar.py - Composant de Sidebar et Sauvegarde
 
 import json
 import streamlit as st

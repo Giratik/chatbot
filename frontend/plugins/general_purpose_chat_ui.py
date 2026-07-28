@@ -1,279 +1,159 @@
-# chat_ui_v2.py - Interface de Chat Généraliste avec Support Multi-Fichiers
-"""
-Version avancée du chat qui intègre:
-- Conversation standard pour demandes générales
-- Traitement des fichiers Excel, Word, PDF, etc.
-- Exécution SQL et génération de graphiques
-- Gestion unifiée de session
-
-Rôle dans l'architecture :
-- Composant principal utilisé par Main.py pour le chatbot généraliste
-- Alternative à Chat.py qui est spécialisé pour les questions RH
-- Fournit une interface unifiée pour l'analyse de données et le chat général
-
-Différence avec Chat.py (RAG) :
-- Ce fichier gère les demandes générales et l'analyse de fichiers
-- Chat.py utilise le pipeline RAG pour les questions spécifiques RH
-- Ce composant n'a pas besoin d'accès à une base de connaissances spécifique
-"""
+# frontend/plugins/general_purpose_chat_ui.py - Interface de Chat Généraliste avec Support Multi-Fichiers
 
 import json
-import streamlit as st
-import requests
-import uuid
-import time
-import re
 import os
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import random
+import re
+import time
+import uuid
 
-from mots_cle import (
-    COMPANY,
-    ACRONYME
+import pandas as pd
+import requests
+import streamlit as st
+
+from mots_cle import COMPANY, ACRONYME, LOGO_PATH
+
+from .session_state import init_session_state, reset_and_rerun
+from .excel_tools import (
+    extraire_sql_et_metadata,
+    construire_graphe,
+    executer_sql_backend,
+    parse_and_load_excel,
 )
 
 # --- CONFIGURATION GLOBALE ---
-LOGO_PATH = "ressource/Eau_de_Paris_bleu.svg.png"
+
 API_URL = os.environ.get("API_URL", "http://backend:8000")
-DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "ministral-3:14b")
-DEFAULT_VLM = os.environ.get("DEFAULT_VLM", "ministral-3:14b")
+DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "gemma4:e4b")
+DEFAULT_VLM = os.environ.get("DEFAULT_VLM", "gemma4:e4b")
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", 0.3))
 PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
 
-# --- GESTION DE SESSION UNIFIÉE ---
-def init_session_state():
+
+# --- APPEL DU LLM ET TRAITEMENT DE LA RÉPONSE (RÉUTILISABLE POUR LA RÉGÉNÉRATION) ---
+def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
     """
-    Initialise l'état de session pour le chat hybride.
-    Gère à la fois les variables de session standard et Excel.
-    """
-    # Variables de session standard (chat)
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "processed_files" not in st.session_state:
-        st.session_state.processed_files = []
-    if "think_mode" not in st.session_state:
-        st.session_state.think_mode = False
-
-    # Variables de session Excel (ajoutées pour la compatibilité Excel)
-    if "tables_info" not in st.session_state:
-        st.session_state.tables_info = None
-    if "knowledge_ready" not in st.session_state:
-        st.session_state.knowledge_ready = False
-    if "last_file_id" not in st.session_state:
-        st.session_state.last_file_id = None
-    if "tables_data" not in st.session_state:
-        st.session_state.tables_data = {}
-    if "excel_mode" not in st.session_state:
-        st.session_state.excel_mode = False
-    if "current_excel_file" not in st.session_state:
-        st.session_state.current_excel_file = None
-    if 'stage' not in st.session_state:
-        st.session_state.stage = 0
-    if "selected_sheet" not in st.session_state:
-        st.session_state.selected_sheet = None
-
-
-    if 'pending_excel_file' not in st.session_state:
-        st.session_state.pending_excel_file = None  # stocke les bytes du fichier en attente
-    if 'pending_excel_name' not in st.session_state:
-        st.session_state.pending_excel_name = None
-    if 'pending_sheet_names' not in st.session_state:
-        st.session_state.pending_sheet_names = []
-
-    if 'pending_user_query' not in st.session_state:
-        st.session_state.pending_user_query = None
-    if 'query_to_execute' not in st.session_state:
-        st.session_state.query_to_execute = None
-
-def reset_and_rerun():
-    """
-    Réinitialise complètement la session.
-    Supprime toutes les données de session et recharge la page.
-    """
-    if "session_id" in st.session_state:
-        try:
-            requests.delete(f"{API_URL}/session/{st.session_state.session_id}", timeout=3)
-        except Exception:
-            pass
-    st.session_state.session_id = str(uuid.uuid4())
-    st.session_state.messages = []
-    st.session_state.processed_files = []
-    st.session_state.tables_info = None
-    st.session_state.knowledge_ready = False
-    st.session_state.last_file_id = None
-    st.session_state.tables_data = {}
-    st.session_state.excel_mode = False
-    st.session_state.current_excel_file = None
-    st.session_state.excel_bytes = None
-    st.session_state.excel_name = None
-    st.session_state.excel_sheet = None
-    st.session_state.stage = 0
-    st.session_state.selected_sheet = None
-    st.rerun()
-
-def set_state(i):
-    st.session_state.stage = i
-
-# --- FONCTIONS EXCEL INTÉGRÉES (version locale comme excel_analyst_ui.py) ---
-def extraire_sql_et_metadata(llm_response: str) -> tuple[str | None, dict]:
-    """
-    Extrait le SQL et les métadonnées de graphique d'une réponse LLM.
-    Utilisé pour générer des graphiques à partir des réponses du modèle.
+    Appelle le backend (chat classique ou analyste de données selon le contexte),
+    stream la réponse dans un st.chat_message("assistant"), puis gère le
+    post-traitement Excel (SQL/graphe/dataframe) le cas échéant.
 
     Args:
-        llm_response: Réponse brute du modèle LLM
+        messages_pour_api: Historique des messages au format attendu par l'API
+        force_new: Si True (cas de la régénération), on force une réponse
+            différente de la précédente en variant le seed et en augmentant
+            légèrement la température, et on ajoute un identifiant unique
+            pour éviter tout cache éventuel côté backend/proxy.
 
     Returns:
-        tuple: (sql_query, chart_metadata) où sql_query peut être None
+        dict: Le message assistant à ajouter à st.session_state.messages
     """
-    sql_match = re.search(r"```sql\n(.*?)\n```", llm_response, re.DOTALL)
-    if not sql_match:
-        return None, {}
+    # Déterminer le mode de traitement
+    if st.session_state.knowledge_ready:
+        mode = "graphique"
+        endpoint = f"{API_URL}/chat_data_analyst"
+        context_size = CONTEXT_SIZE
+        temperature = 0.4
+    else:
+        mode = "discussion"
+        endpoint = f"{API_URL}/chat"
+        context_size = CONTEXT_SIZE
+        temperature = TEMPERATURE
 
-    bloc = sql_match.group(1).strip()
-    chart_meta = {}
-    for key in ["CHART_TYPE", "CHART_X", "CHART_Y", "CHART_TITLE", "CHART_COLOR"]:
-        m = re.search(rf"--\s*{key}:\s*(.+)", bloc)
-        if m:
-            chart_meta[key] = m.group(1).strip()
+    if force_new:
+        # Légère hausse de température pour favoriser une réponse différente
+        temperature = min(temperature + 0.15, 1.0)
 
-    lignes_sql = [l for l in bloc.splitlines() if not l.strip().startswith("--")]
-    sql_pur = "\n".join(lignes_sql).strip()
-    return sql_pur, chart_meta
+    with st.chat_message("assistant"):
+        start_time = time.time()
 
-def construire_graphe(df: pd.DataFrame, meta: dict) -> go.Figure | None:
-    """
-    Construit un graphique localement à partir d'un DataFrame et de métadonnées.
+        payload = {
+            "messages": messages_pour_api,
+            "modele": DEFAULT_LLM,
+            "temperature": temperature,
+            "context_size": context_size,
+            "session_id": st.session_state.session_id,
+            "mode": mode,
+            "think": st.session_state.think_mode,
+            "tables_info": st.session_state.tables_info,
+            # Identifiant unique + seed aléatoire : évite qu'une réponse identique
+            # soit renvoyée (cache proxy/backend) ou régénérée avec le même seed.
+            "request_id": str(uuid.uuid4()),
+            "seed": random.randint(1, 2_147_483_647),
+        }
 
-    Args:
-        df: DataFrame contenant les données à visualiser
-        meta: Dictionnaire de métadonnées (CHART_TYPE, CHART_X, CHART_Y, etc.)
+        with st.sidebar:
+            if PAYLOAD_DEBUG == "show":
+                st.subheader("🔍 Debug — Payload")
+                st.json(payload)
+                st.caption(f"Mode: {mode} | Contexte: {context_size}")
 
-    Returns:
-        go.Figure: Objet graphique Plotly ou None en cas d'erreur
+        mes_stats = {}
 
-    Types de graphiques supportés: bar, line, pie, scatter
-    """
-    chart_type = meta.get("CHART_TYPE", "bar").lower()
-    x = meta.get("CHART_X")
-    y = meta.get("CHART_Y")
-    title = meta.get("CHART_TITLE", "")
-    color = meta.get("CHART_COLOR")
+        def lire_flux_api():
+            try:
+                with requests.post(endpoint, json=payload, stream=True, timeout=120) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=1024):
+                        if chunk:
+                            texte = chunk.decode("utf-8")
+                            if "STATS_JSON:" in texte:
+                                parties = texte.split("STATS_JSON:")
+                                if parties[0]:
+                                    yield parties[0]
+                                stats_recues = json.loads(parties[1])
+                                mes_stats.update(stats_recues)
+                            else:
+                                yield texte
+            except Exception as e:
+                yield f"❌ Erreur de connexion : {str(e)}"
 
-    if x and x not in df.columns:
-        x = df.columns[0] if len(df.columns) > 0 else None
-    if y and y not in df.columns:
-        y = df.columns[1] if len(df.columns) > 1 else None
+        with st.spinner("💬 Génération de la réponse en cours..."):
+            full_response = st.write_stream(lire_flux_api())
+        st.caption(f"⏱️ {time.time() - start_time:.2f}s")
 
-    try:
-        kwargs = dict(data_frame=df, x=x, y=y, title=title)
-        if color and color in df.columns:
-            kwargs["color"] = color
-        if chart_type == "bar":
-            return px.bar(**kwargs)
-        elif chart_type == "line":
-            return px.line(**kwargs)
-        elif chart_type == "pie":
-            return px.pie(df, names=x, values=y, title=title)
-        elif chart_type == "scatter":
-            return px.scatter(**kwargs)
-        else:
-            return px.bar(**kwargs)
-    except Exception as e:
-        st.warning(f"⚠️ Graphe impossible à construire : {e}")
-        return None
+        # --- TRAITEMENT POST-RÉPONSE (EXCEL) ---
+        message_assistant = {
+            "role": "assistant",
+            "display_content": full_response,
+            "content": full_response,
+        }
 
-def executer_sql_backend(sql: str) -> pd.DataFrame | None:
-    """
-    Exécute SQL via le backend et retourne les résultats.
+        # Si nous sommes en mode Excel et que des métadonnées SQL sont présentes
+        if st.session_state.knowledge_ready:
+            sql, chart_meta = extraire_sql_et_metadata(full_response)
 
-    Args:
-        sql: Requête SQL à exécuter
+            if sql and chart_meta:
+                with st.spinner("📊 Construction du graphe..."):
+                    df_result = executer_sql_backend(sql)
+                    if df_result is not None and not df_result.empty:
+                        fig = construire_graphe(df_result, chart_meta)
+                        if fig:
+                            st.plotly_chart(fig, use_container_width=True)
+                            # Stocker les données pour le graphe plutôt que l'objet Figure
+                            message_assistant["chart_data"] = {
+                                "type": chart_meta.get("CHART_TYPE", "bar"),
+                                "data": df_result.to_dict(orient='records'),
+                                "layout": {
+                                    "x": chart_meta.get("CHART_X"),
+                                    "y": chart_meta.get("CHART_Y"),
+                                    "title": chart_meta.get("CHART_TITLE")
+                                }
+                            }
 
-    Returns:
-        pd.DataFrame: Résultats de la requête ou None en cas d'erreur
-    """
-    try:
-        resp = requests.post(
-            f"{API_URL}/execute_sql",
-            json={"sql": sql, "session_id": st.session_state.session_id},
-            timeout=30,
-        )
-        data = resp.json()
-        if data.get("status") == "success":
-            return pd.DataFrame(data["data"])
-        else:
-            st.error(f"❌ Erreur SQL : {data.get('message')}")
-            return None
-    except Exception as e:
-        st.error(f"❌ Connexion backend : {e}")
-        return None
+                        st.dataframe(df_result, use_container_width=True)
+                        message_assistant["dataframe"] = df_result.to_dict(orient="records")
 
+                        csv = df_result.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label="📥 Télécharger (CSV)",
+                            data=csv,
+                            file_name="resultat.csv",
+                            mime="text/csv",
+                            key=f"dl_{len(st.session_state.messages)}",
+                        )
 
-
-# --- FONCTION DE PARSING EXCEL ---
-def parse_and_load_excel():
-    """Envoie le fichier au backend et charge les tables. Appelé après sélection de l'onglet."""
-    import io
-    file_bytes = io.BytesIO(st.session_state.pending_excel_file)
-    
-    try:
-        resp = requests.post(
-            f"{API_URL}/parse_excel",
-            files={"file": (st.session_state.pending_excel_name, file_bytes)},
-            params={
-                "sheet_name": st.session_state.selected_sheet,
-                "session_id": st.session_state.session_id,
-            },
-            timeout=60,
-        )
-        data = resp.json()
-
-        if resp.status_code == 200 and data.get("status") == "success":
-            st.session_state.tables_info = data["tables"]
-            st.session_state.knowledge_ready = True
-            st.session_state.excel_sheet = st.session_state.selected_sheet
-
-            for table in data["tables"]:
-                try:
-                    r = requests.post(
-                        f"{API_URL}/execute_sql",
-                        json={
-                            "sql": f'SELECT * FROM "{table["name"]}"',
-                            "session_id": st.session_state.session_id,
-                        },
-                        timeout=30,
-                    )
-                    d = r.json()
-                    if d.get("status") == "success":
-                        st.session_state.tables_data[table["name"]] = pd.DataFrame(d["data"])
-                except Exception:
-                    pass
-            # Utiliser la query de l'utilisateur si elle existe, sinon l'instruction
-            # par défaut — dans les deux cas, ce sera traité comme dans le flux normal
-            # (1 seul appel LLM, pas de message de confirmation séparé qui dupliquerait
-            # ce que le LLM va lui-même répondre).
-            if st.session_state.get("pending_user_query"):
-                st.session_state.query_to_execute = st.session_state.pending_user_query
-            else:
-                st.session_state.query_to_execute = "Prends connaissance du fichier joint et attends mes instructions."
-        else:
-            st.error(f"❌ Erreur chargement Excel: {data.get('message', 'Erreur inconnue')}")
-
-    except Exception as e:
-        st.error(f"❌ Erreur traitement Excel: {e}")
-
-    finally:
-        st.session_state.pending_excel_file = None
-        st.session_state.pending_sheet_names = []
-        st.session_state.stage = 0
-        st.session_state.pending_user_query = None
-        # NB: query_to_execute est intentionnellement conservé ici —
-        # il sera consommé par la boucle principale après le rerun.
+    return message_assistant
 
 
 # --- FONCTION PRINCIPALE DE CHAT HYBRIDE ---
@@ -306,7 +186,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         st.divider()
 
         # Section Excel (toujours visible mais désactivée si pas de fichier)
- 
+
 
         # Afficher l'état actuel du fichier
         if st.session_state.current_excel_file:
@@ -332,7 +212,8 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
 
     # 1. AFFICHAGE DE L'HISTORIQUE AVEC SUPPORT EXCEL
     # Dans la boucle d'affichage de l'historique
-    for message in st.session_state.messages:
+    nb_messages = len(st.session_state.messages)
+    for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             raw = message.get("display_content") or message.get("content", "")
             display_content = re.sub(r"```sql\n.*?\n```\n?", "", raw, flags=re.DOTALL).strip()
@@ -356,6 +237,15 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
             if "dataframe" in message:
                 st.dataframe(pd.DataFrame(message["dataframe"]), use_container_width=True)
 
+            # --- BOUTON DE RÉGÉNÉRATION (uniquement sur le dernier message assistant) ---
+            # Permet de relancer la génération si la réponse du LLM s'est arrêtée
+            # en plein milieu ou n'a pas convenu à l'utilisateur.
+            if message["role"] == "assistant" and idx == nb_messages - 1:
+                if st.button("🔄 Régénérer la réponse", key=f"regen_{idx}"):
+                    st.session_state.messages.pop()
+                    st.session_state.regenerate_request = True
+                    st.rerun()
+
     # --- SÉLECTION D'ONGLET EXCEL ---
     if st.session_state.stage == 1 and st.session_state.pending_sheet_names:
         with st.chat_message("assistant"):
@@ -376,6 +266,20 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
         st.sidebar.write("🔄 Parsing en cours...")  # à retirer après debug
         with st.spinner("⏳ Chargement du fichier Excel..."):
             parse_and_load_excel()
+        st.rerun()
+
+    # --- RÉGÉNÉRATION DE LA DERNIÈRE RÉPONSE ---
+    # Déclenchée par le bouton "🔄 Régénérer la réponse" : on relance l'appel LLM
+    # avec l'historique existant (qui se termine déjà par le dernier message
+    # utilisateur, l'ancienne réponse assistant ayant été retirée au clic).
+    if st.session_state.get("regenerate_request"):
+        st.session_state.regenerate_request = False
+        messages_pour_api = [
+            {"role": m["role"], "content": m.get("content") or m.get("display_content", "")}
+            for m in st.session_state.messages
+        ]
+        message_assistant = _appeler_llm_et_afficher(messages_pour_api, force_new=True)
+        st.session_state.messages.append(message_assistant)
         st.rerun()
 
     # 2. SAISIE UTILISATEUR AVEC SUPPORT FICHIERS ÉTENDU
@@ -485,18 +389,6 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
                     st.session_state.tables_info = data["tables"]
                     st.session_state.knowledge_ready = True
 
-        # Déterminer le mode de traitement
-        if st.session_state.knowledge_ready:
-            mode = "graphique"
-            endpoint = f"{API_URL}/chat_data_analyst"
-            context_size = CONTEXT_SIZE
-            temperature = 0.4
-        else:
-            mode = "discussion"
-            endpoint = f"{API_URL}/chat"
-            context_size = CONTEXT_SIZE
-            temperature = TEMPERATURE
-
         # Utiliser le texte de l'utilisateur directement (comme dans excel_analyst_ui.py)
         instruction = user_text if user_text else "Prends connaissance du fichier joint et attends mes instructions."
 
@@ -518,89 +410,7 @@ def render_general_purpose_chat(title=f"Chatbot {ACRONYME} Hybride"):
             st.markdown(display_text)
 
         # --- C. APPEL DU CHATBOT AVEC LE BON ENDPOINT ---
-        with st.chat_message("assistant"):
-            start_time = time.time()
-
-            payload = {
-                "messages": messages_pour_api,
-                "modele": DEFAULT_LLM,
-                "temperature": temperature,
-                "context_size": context_size,
-                "session_id": st.session_state.session_id,
-                "mode": mode,
-                "think": st.session_state.think_mode,
-                "tables_info": st.session_state.tables_info,
-            }
-
-            with st.sidebar:
-                if PAYLOAD_DEBUG == "show":
-                    st.subheader("🔍 Debug — Payload")
-                    st.json(payload)
-                    st.caption(f"Mode: {mode} | Contexte: {context_size}")
-
-            mes_stats = {}
-
-            def lire_flux_api():
-                try:
-                    with requests.post(endpoint, json=payload, stream=True, timeout=120) as r:
-                        r.raise_for_status()
-                        for chunk in r.iter_content(chunk_size=1024):
-                            if chunk:
-                                texte = chunk.decode("utf-8")
-                                if "STATS_JSON:" in texte:
-                                    parties = texte.split("STATS_JSON:")
-                                    if parties[0]:
-                                        yield parties[0]
-                                    stats_recues = json.loads(parties[1])
-                                    mes_stats.update(stats_recues)
-                                else:
-                                    yield texte
-                except Exception as e:
-                    yield f"❌ Erreur de connexion : {str(e)}"
-
-            full_response = st.write_stream(lire_flux_api())
-            st.caption(f"⏱️ {time.time() - start_time:.2f}s")
-
-            # --- D. TRAITEMENT POST-RÉPONSE (EXCEL) ---
-            message_assistant = {
-                "role": "assistant",
-                "display_content": full_response,
-                "content": full_response,
-            }
-
-            # Si nous sommes en mode Excel et que des métadonnées SQL sont présentes
-            if st.session_state.knowledge_ready:
-                sql, chart_meta = extraire_sql_et_metadata(full_response)
-
-                if sql and chart_meta:
-                    with st.spinner("📊 Construction du graphe..."):
-                        df_result = executer_sql_backend(sql)
-                        if df_result is not None and not df_result.empty:
-                            fig = construire_graphe(df_result, chart_meta)
-                            if fig:
-                                st.plotly_chart(fig, use_container_width=True)
-                                # Stocker les données pour le graphe plutôt que l'objet Figure
-                                message_assistant["chart_data"] = {
-                                    "type": chart_meta.get("CHART_TYPE", "bar"),
-                                    "data": df_result.to_dict(orient='records'),
-                                    "layout": {
-                                        "x": chart_meta.get("CHART_X"),
-                                        "y": chart_meta.get("CHART_Y"),
-                                        "title": chart_meta.get("CHART_TITLE")
-                                    }
-                                }
-
-                            st.dataframe(df_result, use_container_width=True)
-                            message_assistant["dataframe"] = df_result.to_dict(orient="records")
-
-                            csv = df_result.to_csv(index=False).encode("utf-8")
-                            st.download_button(
-                                label="📥 Télécharger (CSV)",
-                                data=csv,
-                                file_name="resultat.csv",
-                                mime="text/csv",
-                                key=f"dl_{len(st.session_state.messages)}",
-                            )
+        message_assistant = _appeler_llm_et_afficher(messages_pour_api)
 
         st.session_state.messages.append(message_assistant)
         st.rerun()

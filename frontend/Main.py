@@ -1,21 +1,4 @@
-"""
-Main.py - Point d'entrée principal du chatbot généraliste
-───────────────────────────────────────────────────────────────
-Rôle : Interface principale pour le traitement de fichiers et demandes générales
-- Traite les questions générales
-- Analyse les fichiers Excel, Word, PDF, etc.
-- Génère des graphiques et exécute des requêtes SQL
-- Gestion unifiée de session
-
-Architecture :
-- Utilise general_purpose_chat_ui.py pour l'interface principale
-- Intègre Sidebar.py pour la sauvegarde des conversations
-- Ne dépend pas des composants RAG (contrairement à Chatbot_RH.py)
-
-Différence avec Chatbot_RH.py :
-- Ce fichier est pour les demandes générales et l'analyse de fichiers
-- Chatbot_RH.py est spécialisé pour les questions RH avec accès RAG
-"""
+# frontend/main.py
 
 import streamlit as st
 from plugins.general_purpose_chat_ui import render_general_purpose_chat
