@@ -56,6 +56,20 @@ def init_session_state():
     if 'regenerate_request' not in st.session_state:
         st.session_state.regenerate_request = False
 
+    # Variables de session RAG (ajoutées pour la configuration RAG)
+    if "rag_config" not in st.session_state:
+        # Initialisation avec des valeurs par défaut
+        st.session_state.rag_config = {
+            "collection": "aucune_collection",
+            "model": "gemma4:e4b",
+            "doc_date_filter": "",
+            "n_results": 250,
+            "seuil": 0.6,
+            "use_hyde": True,
+            "use_expansion": True,
+            "alpha": 0.5,
+        }
+
 
 def reset_and_rerun():
     """

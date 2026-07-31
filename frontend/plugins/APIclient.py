@@ -74,7 +74,6 @@ def retrieve_context_hybrid(
     alpha: float = 0.5,
     use_hyde: bool = False,
     use_expansion: bool = False,
-    use_reranker: bool = True,
     doc_date_filter: str = "",
 ) -> tuple[List[str], List[str], List[Dict[str, Any]]]:
     data = _post("/rag/search", {
@@ -86,7 +85,6 @@ def retrieve_context_hybrid(
         "alpha": alpha,
         "use_hyde": use_hyde,
         "use_expansion": use_expansion,
-        "use_reranker": use_reranker,
         "doc_date_filter": doc_date_filter,
     })
     return data["contexts"], data["sources"], data["detailed_chunks"]

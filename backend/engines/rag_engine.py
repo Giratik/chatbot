@@ -1,62 +1,43 @@
 #backend/engines/rag_engine.py
 
-"""
-backend.py — Logique RAG : ChromaDB, Ollama, BM25, Hybrid Search
-─────────────────────────────────────────────────────────────────
-"""
-
 import re
+import httpx
 from rank_bm25 import BM25Okapi
-import chromadb
-from chromadb.utils import embedding_functions
-from services.ollama_client import inferring_ollama
 
-from core.config import CHROMA_HOST, CHROMA_PORT, OLLAMA_HOST, EMBEDDING_MODEL
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+
+from services.ollama_client import inferring_ollama
+from core.config import QDRANT_HOST, QDRANT_PORT, OLLAMA_HOST, EMBEDDING_MODEL, CONTEXT_SIZE
 from typing import Any
 
 
 # ─── CLIENTS ──────────────────────────────────────────────────────────────────
 
-def make_chroma_client() -> chromadb.HttpClient:
-    return chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
-
+def make_qdrant_client() -> QdrantClient:
+    return QdrantClient(host=QDRANT_HOST, port=int(QDRANT_PORT))
 
 # The original Ollama client is replaced by the inferring_ollama helper.
-# Functions that previously required a Client instance should be adapted to use
-# `inferring_ollama` directly where appropriate.
 class SimpleOllamaClient:
-    """Minimal wrapper mimicking the `ollama.Client` interface used in this module.
-
-    It provides a ``chat`` method that forwards the call to ``inferring_ollama``.
-    The original code expects the ``chat`` method to return a dict with a
-    ``message`` key containing ``content``. ``inferring_ollama`` returns a
-    generator when ``stream=True``; for non‑streaming calls we invoke it with
-    ``stream=False`` and collect the first chunk.
-    """
-
     def __init__(self, host: str = None):
-        # ``host`` is kept for signature compatibility but not used.
         self.host = host
 
     def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False):
-        # ``inferring_ollama`` signature: messages, model, temperature, stream, stats_dict, ...
-        # We extract temperature from options if provided.
         temperature = 0.0
         if options and isinstance(options, dict):
             temperature = options.get("temperature", 0.0)
-        # ``inferring_ollama`` expects ``stats_dict``; we provide a dummy.
         dummy_stats = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}
+        
         if stream:
-            # Return a generator compatible with the original usage (iterable of chunks).
             return inferring_ollama(
                 messages=messages,
                 model=model,
                 temperature=temperature,
                 stream=True,
                 stats_dict=dummy_stats,
+                context_size=CONTEXT_SIZE,
             )
         else:
-            # Collect the full response (non‑streaming) and mimic the dict format.
             full = "".join(
                 chunk for chunk in inferring_ollama(
                     messages=messages,
@@ -64,6 +45,7 @@ class SimpleOllamaClient:
                     temperature=temperature,
                     stream=True,
                     stats_dict=dummy_stats,
+                    context_size=CONTEXT_SIZE,
                 )
             )
             return {"message": {"content": full}}
@@ -74,37 +56,45 @@ class SimpleOllamaClient:
         return c.list()
 
 def make_ollama_client():
-    # Return an instance of the wrapper to preserve existing function signatures.
     return SimpleOllamaClient()
 
 
-def make_embedding_fn() -> embedding_functions.OllamaEmbeddingFunction:
-    return embedding_functions.OllamaEmbeddingFunction(
-        url=OLLAMA_HOST + "/api/embeddings",
-        model_name=EMBEDDING_MODEL,
-    )
+def embed(texts: list[str], ollama_host: str, model: str = EMBEDDING_MODEL) -> list[list[float]]:
+    """Appel direct à l'API Ollama pour produire les embeddings."""
+    vectors = []
+    with httpx.Client(timeout=60) as client:
+        for text in texts:
+            resp = client.post(
+                f"{ollama_host}/api/embeddings",
+                json={"model": model, "prompt": text},
+            )
+            resp.raise_for_status()
+            vectors.append(resp.json()["embedding"])
+    return vectors
 
 
-def get_collection(chroma_client: chromadb.HttpClient, collection_name: str):
-    return chroma_client.get_collection(
-        name=collection_name,
-        embedding_function=make_embedding_fn(),
-    )
+def list_collections(qdrant_client: QdrantClient) -> list[str]:
+    return sorted(c.name for c in qdrant_client.get_collections().collections)
 
 
-def list_collections(chroma_client: chromadb.HttpClient) -> list[str]:
-    raw = chroma_client.list_collections()
-    return [c.name if hasattr(c, "name") else c for c in raw]
-
-
-def list_doc_dates(collection) -> list[str]:
-    result = collection.get(include=["metadatas"])
-    dates = {
-        meta.get("doc_date", "")
-        for meta in (result.get("metadatas") or [])
-        if meta and meta.get("doc_date")
-    }
-    return sorted(dates)
+def list_doc_dates(qdrant_client: QdrantClient, collection_name: str) -> list[str]:
+    """Parcourt la collection Qdrant pour extraire les dates uniques."""
+    dates = set()
+    offset = None
+    while True:
+        records, offset = qdrant_client.scroll(
+            collection_name=collection_name,
+            limit=200,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        for r in records:
+            if r.payload and r.payload.get("doc_date"):
+                dates.add(r.payload["doc_date"])
+        if offset is None:
+            break
+    return sorted(list(dates))
 
 
 def list_generative_models(ollama_client: Any) -> list[str]:
@@ -121,7 +111,6 @@ def list_generative_models(ollama_client: Any) -> list[str]:
 # ─── QUERY AUGMENTATION ───────────────────────────────────────────────────────
 
 def expand_query(ollama_client: Any, model: str, query: str) -> list[str]:
-    """Génère des reformulations synonymiques de la question."""
     prompt = (
         "Reformule cette question en 3 variantes courtes avec des synonymes différents.\n"
         "Retourne UNIQUEMENT les 3 reformulations, une par ligne, sans numérotation ni explication.\n"
@@ -140,7 +129,6 @@ def expand_query(ollama_client: Any, model: str, query: str) -> list[str]:
 
 
 def hyde_query(ollama_client: Any, model: str, query: str) -> str:
-    """HyDE : génère une réponse hypothétique pour améliorer la recherche vectorielle."""
     prompt = (
         "Rédige un court paragraphe (3-4 phrases) qui serait une réponse plausible à cette question.\n"
         "Utilise un vocabulaire précis et varié. N'indique pas que c'est hypothétique.\n"
@@ -160,7 +148,6 @@ def hyde_query(ollama_client: Any, model: str, query: str) -> str:
 # ─── TOKENISATION ─────────────────────────────────────────────────────────────
 
 def tokenize(text: str) -> list[str]:
-    """Tokenisation simple : minuscules, suppression ponctuation, split."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
     return [t for t in text.split() if len(t) > 1]
@@ -169,7 +156,8 @@ def tokenize(text: str) -> list[str]:
 # ─── HYBRID SEARCH ────────────────────────────────────────────────────────────
 
 def retrieve_context_hybrid(
-    collection,
+    qdrant_client: QdrantClient,
+    collection_name: str,
     query: str,
     ollama_client: Any,
     model: str,
@@ -178,17 +166,9 @@ def retrieve_context_hybrid(
     alpha: float,
     use_hyde: bool,
     use_expansion: bool,
-    use_reranker: bool = True,
     doc_date_filter: str = "",
 ) -> tuple[list[str], list[tuple], list[dict]]:
-    """
-    Hybrid Search : fusion score vectoriel ChromaDB + score BM25.
-
-    Retourne :
-        contexts       — liste de strings prêts à injecter dans le prompt
-        sources        — liste de tuples (source_name, hybrid_score, vecto_dist, doc_date)
-        detailed_chunks — liste de dicts avec toutes les métriques (pour visualisation)
-    """
+    
     queries = [query]
     if use_expansion:
         queries = expand_query(ollama_client, model, query)
@@ -197,24 +177,35 @@ def retrieve_context_hybrid(
 
     per_query = max(5, n_results // len(queries))
 
-    # ── Récupération vectorielle ──────────────────────────────────────────────
+    # ── Récupération vectorielle Qdrant ───────────────────────────────────────
     candidates: dict[str, dict] = {}
-    where_filter = {"doc_date": doc_date_filter} if doc_date_filter else None
+    
+    qdrant_filter = None
+    if doc_date_filter:
+        qdrant_filter = Filter(must=[FieldCondition(key="doc_date", match=MatchValue(value=doc_date_filter))])
+
     for q in queries:
         try:
-            if where_filter:
-                r = collection.query(query_texts=[q], n_results=per_query, where=where_filter)
-            else:
-                r = collection.query(query_texts=[q], n_results=per_query)
-            for i, doc_id in enumerate(r["ids"][0]):
-                dist = r["distances"][0][i]
-                if dist <= seuil and doc_id not in candidates:
-                    candidates[doc_id] = {
-                        "document": r["documents"][0][i],
-                        "metadata": r["metadatas"][0][i],
+            q_vector = embed([q], OLLAMA_HOST, EMBEDDING_MODEL)[0]
+            result = qdrant_client.query_points(
+                collection_name=collection_name,
+                query=q_vector,
+                query_filter=qdrant_filter,
+                limit=per_query,
+                with_payload=True
+            )
+            
+            for hit in result.points:
+                dist = max(0.0, 1.0 - hit.score)
+                if dist <= seuil and hit.id not in candidates:
+                    candidates[hit.id] = {
+                        "document": hit.payload.get("document", ""),
+                        "metadata": hit.payload,
                         "vecto_distance": dist,
                     }
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning(f"Erreur sur la query '{q}': {e}")
             continue
 
     if not candidates:
@@ -246,13 +237,11 @@ def retrieve_context_hybrid(
         zip(hybrid_scores, vecto_distances, bm25_scores, docs, metas),
         key=lambda x: x[0],
         reverse=True,
-    )[:n_results * 2]  # on garde 2× plus de candidats pour le reranker
-    # ── Reranking ─────────────────────────────────────────────────────────────
-    # Reranking has been removed; use the initial ranking directly.
-    ranked_with_rerank = [(*item, 0.0) for item in ranked[:n_results]]
+    )[:n_results]
 
+    ranked_with_rerank = [(*item, 0.0) for item in ranked]
 
-# ── Construction des résultats ────────────────────────────────────────────
+    # ── Construction des résultats ────────────────────────────────────────────
     contexts: list[str] = []
     sources: list[tuple] = []
     detailed_chunks: list[dict] = []
@@ -261,13 +250,9 @@ def retrieve_context_hybrid(
     for hybrid_score, vecto_dist, bm25_score, doc, meta, rerank_score in ranked_with_rerank:
         if "source" in meta and "page" in meta:
             source_name = f"📄 {meta['source']} (Page {meta['page']})"
-            
-            # ⬅️ NOUVEAU : Récupération et formatage de l'URL si elle existe
             source_url = meta.get("source_url", "").strip()
             if source_url:
-                # Format Markdown cliquable pour Streamlit
                 source_name += f" — [Ouvrir le lien]({source_url})"
-                
             chunk_type = "pdf"
             doc_date = meta.get("doc_date", "")
         elif "acronyme" in meta:
@@ -299,77 +284,29 @@ def retrieve_context_hybrid(
             "bm25_score": bm25_score,
             "doc_date": doc_date,
             "rerank_score": rerank_score,
-            "source_url": meta.get("source_url", ""), # ⬅️ NOUVEAU : Ajout aux détails
+            "source_url": meta.get("source_url", ""),
         })
 
     return contexts, sources, detailed_chunks
 
 
 # ─── GÉNÉRATION LLM ───────────────────────────────────────────────────────────
-from core.config import RAG_SYSTEM_PROMPT
+from core.config import SYSTEM_PROMPT
 
 def build_system_prompt(context_str: str) -> str:
-    return f""" {RAG_SYSTEM_PROMPT}
-
-CONTEXTE :
-{context_str}
-"""
+    return f""" {SYSTEM_PROMPT} 
+    CONTEXTE :{context_str} """
 
 
-def stream_answer(ollama_client: Any, model: str, system_prompt: str, user_question: str):
-    """Générateur de tokens pour la réponse en streaming."""
-    for chunk in ollama_client.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_question},
-        ],
-        stream=True,
-        options={"temperature": 0.0},
-    ):
-        if isinstance(chunk, str):
-            yield chunk
-        elif isinstance(chunk, dict):
-            yield chunk.get("message", {}).get("content", "")
-        else:
-            try:
-                yield chunk.message.content
-            except AttributeError:
-                yield str(chunk)
-
-
-# Reranker functionality has been removed; the related imports and variables are no longer needed.
-# from transformers import AutoModelForCausalLM, AutoTokenizer
-# import torch
-# _reranker_model = None
-# _reranker_tokenizer = None
-
-
-# ─── 1. QUERY REWRITING ───────────────────────────────────────────────────────
- 
 def rewrite_query(
     ollama_client,
     model: str,
     query: str,
     chat_history: list[dict],
 ) -> str:
-    """
-    Reformule la question de l'utilisateur en une query autonome et complète,
-    en tenant compte de l'historique de conversation.
- 
-    Exemple :
-        Historique : "Où déposer l'accord d'intéressement ?"
-        Question   : "y a t il un délai ?"
-        → Résultat : "Quel est le délai de dépôt de l'accord d'intéressement ?"
- 
-    Si la question est déjà autonome (pas de pronom anaphorique, pas d'ellipse),
-    le LLM la retourne telle quelle — pas de reformulation inutile.
-    """
     if not chat_history:
-        # Pas d'historique → rien à résoudre
         return query
  
-    # On formate les N derniers échanges (évite des prompts trop longs)
     MAX_TURNS = 4
     recent = chat_history[-(MAX_TURNS * 2):]
     history_str = "\n".join(
@@ -385,8 +322,8 @@ def rewrite_query(
         "Ta tâche : si cette question contient des pronoms, ellipses ou références "
         "implicites à l'historique (ex: 'y a t il un délai ?', 'et pour lui ?', "
         "'quel est ce montant ?'), reformule-la en incluant explicitement "
-"le sujet principal de la conversation et toute population ou cas particulier "
-"mentionné dans l'historique.\n"
+        "le sujet principal de la conversation et toute population ou cas particulier "
+        "mentionné dans l'historique.\n"
         "Si la question est déjà autonome, retourne-la EXACTEMENT telle quelle.\n"
         "Retourne UNIQUEMENT la question reformulée, sans explication ni ponctuation "
         "supplémentaire."
@@ -399,13 +336,10 @@ def rewrite_query(
             options={"temperature": 0.0},
         )
         rewritten = resp["message"]["content"].strip().strip("«»\"'")
-        # Garde la query originale si la reformulation est vide ou aberrante
         return rewritten if len(rewritten) > 5 else query
     except Exception:
         return query
  
- 
-# ─── 2. STREAM ANSWER — version avec historique ───────────────────────────────
  
 def stream_answer(
     ollama_client,
@@ -414,22 +348,10 @@ def stream_answer(
     user_question: str,
     chat_history: list[dict] | None = None,
 ):
-    """
-    Générateur de tokens pour la réponse en streaming.
- 
-    chat_history : liste de dicts {"role": "user"|"assistant", "content": str}
-                   représentant les tours PRÉCÉDENTS (sans le tour en cours).
-                   Si None ou vide → comportement identique à l'original.
- 
-    Le system_prompt (contexte RAG) est injecté en premier message système.
-    L'historique est ensuite rejoué tel quel, puis la question courante est ajoutée.
-    """
-    MAX_HISTORY_TURNS = 6  # nb de tours (user+assistant) à conserver
- 
+    MAX_HISTORY_TURNS = 6
     messages = [{"role": "system", "content": system_prompt}]
  
     if chat_history:
-        # Tronque pour rester dans le context window du modèle
         trimmed = chat_history[-(MAX_HISTORY_TURNS * 2):]
         messages.extend(trimmed)
  

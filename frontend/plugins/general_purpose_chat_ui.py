@@ -71,7 +71,7 @@ def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
             "messages": messages_pour_api,
             "modele": DEFAULT_LLM,
             "temperature": temperature,
-            "context_size": context_size,
+            "context_size": CONTEXT_SIZE,
             "session_id": st.session_state.session_id,
             "mode": mode,
             "think": st.session_state.think_mode,
@@ -81,6 +81,19 @@ def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
             "request_id": str(uuid.uuid4()),
             "seed": random.randint(1, 2_147_483_647),
         }
+
+        # Add RAG parameters if available and not in Excel mode
+        if not st.session_state.knowledge_ready and hasattr(st.session_state, 'rag_config'):
+            rag_config = st.session_state.rag_config
+            payload.update({
+                "collection_name": rag_config.get("collection"),
+                "n_results": rag_config.get("n_results"),
+                "seuil": rag_config.get("seuil"),
+                "alpha": rag_config.get("alpha"),
+                "use_hyde": rag_config.get("use_hyde"),
+                "use_expansion": rag_config.get("use_expansion"),
+                "doc_date_filter": rag_config.get("doc_date_filter"),
+            })
 
         with st.sidebar:
             if PAYLOAD_DEBUG == "show":

@@ -66,5 +66,4 @@ def render_changelog_page():
         st.error("Le fichier `CHANGELOG.md` n'a pas été trouvé à la racine du projet.")
 
 if __name__ == "__main__":
-    if HIDE_CHANGELOG_PAGE != "yes":
-        render_changelog_page()
+    render_changelog_page()

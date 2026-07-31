@@ -19,8 +19,8 @@ services:
       - HF_HOME=/root/.cache/huggingface
       - EMBEDDING_MODEL=embeddinggemma:latest
       # ← ChromaDB joignable via son nom de service sur chroma_net
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
     deploy:
       resources:
         limits:
@@ -35,6 +35,7 @@ services:
               capabilities: [gpu]
     networks:
       - default
+      - qdrant_net   # ← rejoint le réseau Qdrant
 
   frontend:
     build:
@@ -52,8 +53,11 @@ services:
       - DEFAULT_LLM=gemma4:e4b
       - DEFAULT_VLM=gemma4:e4b
       - PAYLOAD_DEBUG=hide
-      - HIDE_CHANGELOG_PAGE=no
+      - IS_DEV=yes
     depends_on:
       - backend
-    networks:
-      - default
+      
+networks:
+  default: {}
+  qdrant_net:
+    external: true

@@ -1,21 +1,35 @@
 # frontend/main.py
 
+
 import streamlit as st
-from plugins.general_purpose_chat_ui import render_general_purpose_chat
-from plugins.Sidebar import render_save_chat
+import os
+from pages.Configuration import set_rag_stats
 
-from mots_cle import ACRONYME
+IS_DEV = os.environ.get("IS_DEV", "no")
 
-# 1. Configuration de la page (DOIT être le premier appel Streamlit)
-st.set_page_config(page_title=f"Chatbot {ACRONYME}", page_icon="💧", layout="wide")
+def main():
+    if "is_dev" not in st.session_state:
+        st.session_state.is_dev = IS_DEV
 
-# 2. Rendu de l'interface de chat modulaire
-# Cette fonction gère l'ensemble de l'interface utilisateur :
-# - Sidebar avec contrôles de session et analyse Excel
-# - Zone de chat principale avec historique
-# - Traitement des fichiers et génération de graphiques
-render_general_purpose_chat(title=f"Chatbot {ACRONYME}")
+    if "rag_config" not in st.session_state:
+        st.session_state.rag_config = set_rag_stats()
 
-# 3. Composant de sauvegarde/restauration des conversations
-# Permet aux utilisateurs d'exporter et importer leurs conversations
-render_save_chat()
+    # Déclaration des pages
+    page_chat = st.Page("pages/chatbot.py", title="Chatbot EDP-IA", icon="💬", default=True)
+    page_changelog = st.Page("pages/Changelog.py", title="Changelog", icon="📝")
+    page_debug = st.Page("debug_files/Rag_parameters_render.py", title="Configuration", icon="⚙️")
+
+    # Construction dynamique de la navigation
+    pages_visibles = [page_chat]
+
+    # Ajout conditionnel de la page de config
+    if st.session_state.is_dev == "yes":
+        pages_visibles.append(page_changelog)
+        pages_visibles.append(page_debug)
+
+    # Exécution de la navigation
+    pg = st.navigation(pages_visibles)
+    pg.run()
+
+if __name__ == "__main__":
+    main()
