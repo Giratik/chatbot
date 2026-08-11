@@ -4,7 +4,7 @@ import json
 
 
 # Assurez-vous d'importer votre fonction client
-from plugins.APIclient import get_collection_raw
+from plugins.APIclient import get_registry
 
 def obtenir_description_collections_dynamique() -> str:
     """
@@ -18,10 +18,13 @@ def obtenir_description_collections_dynamique() -> str:
         backend_url = st.session_state.get("backend_url", "http://10.75.12.5:8000")
 
         # Appel à l'API backend pour récupérer le registre
-        response = requests.get(f"{backend_url}/rag/registry")
-        response.raise_for_status()
-        data = response.json()
-        registry_entries = data.get("registry", [])
+        #response = get_registry()
+        #response = requests.get(f"{backend_url}/rag/registry")
+        #response.raise_for_status()
+        #data = response.json()
+        #registry_entries = data.get("registry", [])
+        response = get_registry()
+        registry_entries = response.get("registry", [])
 
         # Filtrer les entrées valides et extraire nom + description
         collections_dispos = []
@@ -47,8 +50,7 @@ def obtenir_description_collections_dynamique() -> str:
         print(f"Erreur lors de la récupération du registre: {str(e)}")
         # Fallback de sécurité générique en cas d'erreur de connexion à Qdrant
         return (
-            "Nom de la collection dans laquelle chercher. "
-            "Exemples possibles : 'organigramme', 'fiches_factuelles'."
+            "erreur. qdrant est injoinable"
         )
 
 def build_qdrant_tools():

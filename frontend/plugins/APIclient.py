@@ -14,8 +14,8 @@ from typing import Generator, List, Dict, Any, Optional
 
 # ── URL de base (peut être surchargée via st.secrets ou variable d'env) ───────
 import os
-BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
-
+#BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
+BASE_URL = os.environ.get("API_URL", "http://10.75.12.5:8000")
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
  
@@ -50,6 +50,9 @@ def list_doc_dates(collection_name: str) -> List[str]:
 def get_registry():
     try:
         return _get("/rag/registry")
+        #resp = requests.get(f"http://10.75.12.5:8000/rag/registry")
+        #resp.raise_for_status()
+        #return resp.json()
     except Exception:
         return []
 
