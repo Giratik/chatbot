@@ -4,7 +4,7 @@ import json
 
 
 # Assurez-vous d'importer votre fonction client
-from plugins.APIclient import get_registry
+from plugins.APIclient import get_registry_evolve, get_registry
 
 def obtenir_description_collections_dynamique() -> str:
     """
@@ -23,15 +23,16 @@ def obtenir_description_collections_dynamique() -> str:
         #response.raise_for_status()
         #data = response.json()
         #registry_entries = data.get("registry", [])
-        response = get_registry()
+        response = get_registry_evolve()
+        st.write(response)
         registry_entries = response.get("registry", [])
-
+        st.write(registry_entries)
         # Filtrer les entrées valides et extraire nom + description
         collections_dispos = []
         for entry in registry_entries:
-            if entry.get("collection_name") and entry.get("description"):
+            if entry.get("nom") and entry.get("description"):
                 collections_dispos.append({
-                    "nom": entry["collection_name"],
+                    "nom": entry["nom"],
                     "description": entry["description"]
                 })
 
@@ -100,6 +101,7 @@ with st.sidebar:
 
 # Définition de l'outil par défaut
 default_tools = build_qdrant_tools()
+st.write("DEBUG tools:", default_tools)
 
 col1, col2 = st.columns([1, 1])
 

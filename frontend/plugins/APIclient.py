@@ -14,8 +14,8 @@ from typing import Generator, List, Dict, Any, Optional
 
 # ── URL de base (peut être surchargée via st.secrets ou variable d'env) ───────
 import os
-#BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
-BASE_URL = os.environ.get("API_URL", "http://10.75.12.5:8000")
+BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
+#BASE_URL = os.environ.get("API_URL", "http://10.75.12.5:8000")
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
  
@@ -54,6 +54,18 @@ def get_registry():
         #resp.raise_for_status()
         #return resp.json()
     except Exception:
+        return []
+
+def get_registry_evolve():
+    try:
+        registry_entries = _get("/rag/registry_evolve")
+        #resp = requests.get(f"http://10.75.12.5:8000/rag/registry_evolve")
+        #resp.raise_for_status()
+        #registry_entries = resp.json()
+        #return resp
+        return registry_entries # => bonne réponse
+    except Exception as e:
+        print(f"Erreur registry : {e}")
         return []
 
 def get_collection_raw():

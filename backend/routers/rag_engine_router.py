@@ -1,5 +1,10 @@
 #backend/routers/rag_engine_router.py
 
+import os
+import logging
+logger = logging.getLogger(__name__)
+CHATBOT_ROLE = os.environ.get("CHATBOT_ROLE", "general")
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -15,7 +20,10 @@ from engines.rag_engine import (
     stream_answer,
     list_doc_dates,
     list_registry,
+    registry_for_tool_calling,
+    ensure_registry,
 )
+
 
 router = APIRouter(prefix="/rag", tags=["RAG Engine"])
 
@@ -60,6 +68,16 @@ def get_registry_endpoint():
     client = make_qdrant_client()
     try:
         registry_entries = list_registry(client)
+        return {"registry": registry_entries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/registry_evolve")
+def get_registry_endpoint_evolve():
+    client = make_qdrant_client()
+    try:
+        all_entries = list_registry(client)
+        registry_entries = registry_for_tool_calling(client, role=CHATBOT_ROLE)
         return {"registry": registry_entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
