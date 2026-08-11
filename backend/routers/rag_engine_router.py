@@ -14,10 +14,19 @@ from engines.rag_engine import (
     rewrite_query,
     stream_answer,
     list_doc_dates,
+    list_registry,
 )
 
 router = APIRouter(prefix="/rag", tags=["RAG Engine"])
 
+
+@router.get("/get_collection_raw")
+def get_collection():
+    client = make_qdrant_client()
+    try:
+        return client
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/collections")
 def get_collections_endpoint():
@@ -43,6 +52,15 @@ def get_models_endpoint():
     client = make_ollama_client()
     try:
         return {"models": list_generative_models(client)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/registry")
+def get_registry_endpoint():
+    client = make_qdrant_client()
+    try:
+        registry_entries = list_registry(client)
+        return {"registry": registry_entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

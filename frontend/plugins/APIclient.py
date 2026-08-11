@@ -14,7 +14,7 @@ from typing import Generator, List, Dict, Any, Optional
 
 # ── URL de base (peut être surchargée via st.secrets ou variable d'env) ───────
 import os
-BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://localhost:8000"))
+BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -46,6 +46,15 @@ def list_doc_dates(collection_name: str) -> List[str]:
         return _get(f"/rag/collections/{collection_name}/dates")
     except Exception:
         return []
+
+def get_registry():
+    try:
+        return _get("/rag/registry")
+    except Exception:
+        return []
+
+def get_collection_raw():
+    return _get("/rag/get_collection_raw")
  
  
 # ─── Réécriture de requête ────────────────────────────────────────────────────

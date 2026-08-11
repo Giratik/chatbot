@@ -1,4 +1,4 @@
-# frontend/plugins/general_purpose_chat_ui.py - Interface de Chat Généraliste avec Support Multi-Fichiers
+# frontend/plugins/general_purpose_chat_ui.py
 
 import json
 import os

@@ -21,6 +21,7 @@ services:
       # ← ChromaDB joignable via son nom de service sur chroma_net
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - CHATBOT_ROLE=general
     deploy:
       resources:
         limits:
@@ -46,7 +47,7 @@ services:
       - "8501:8501"
     environment:
       # ← nom de service Docker, pas localhost
-      - API_URL=http://backend:8000
+      - API_URL=http://10.75.12.5:8000
       - STREAMLIT_BROWSER_SERVER_ADDRESS=10.75.12.5
       - CONTEXT_SIZE=22000
       - TEMPERATURE=0.4

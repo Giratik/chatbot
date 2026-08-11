@@ -21,6 +21,33 @@ router = APIRouter(tags=["Chat"])
 
 
 
+QDRANT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "rechercher_dans_qdrant",
+            "description": "Recherche des informations spécifiques dans la base de données de l'entreprise. "
+                           "À utiliser uniquement si la question demande des données factuelles, "
+                           "des contacts, des procédures ou des informations sur le personnel.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "collection_name": {
+                        "type": "string",
+                        "description": "Nom de la collection dans laquelle chercher. "
+                                       "Exemples : 'organigramme' (membres, postes, emails, téléphones) "
+                                       "ou 'fiches_generales' (siège, horaires, liens intranet, contacts).",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "La requête ou les mots-clés optimisés pour la recherche.",
+                    },
+                },
+                "required": ["collection_name", "query"],
+            },
+        },
+    }
+]
 
 class Message(BaseModel):
     role: str
@@ -69,53 +96,50 @@ class StreamChatRequest(BaseModel):
 async def generer_chat(requete: ChatRequest):
     try:
         stats_dict = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}
+        
+        from engines.rag_engine import make_ollama_client
+        ollama_client = make_ollama_client()
 
-        # Check if RAG parameters are provided and collection is valid
-        if (requete.collection_name and requete.collection_name != "aucune_collection" and
-            requete.collection_name != "aucune_collection_trouvee"):
-            # Use RAG-enhanced chat
+        # --- ÉTAPE 1 : Le LLM évalue s'il a besoin d'un outil ---
+        # Appel rapide non-streamé pour vérifier l'intention
+        response_eval = ollama_client.chat(
+            model=requete.modele,
+            messages=requete.messages,
+            tools=QDRANT_TOOLS,
+        )
+
+        messages_pour_ollama = []
+
+        # Verification si le modèle souhaite appeler l'outil de recherche
+        if response_eval.message.tool_calls:
+            tool_call = response_eval.message.tool_calls[0]
+            args = tool_call.function.arguments
+            
+            collection_cible = args.get("collection_name", requete.collection_name)
+            query_outil = args.get("query")
+
+            # Execute la recherche Qdrant ciblée
             qdrant_client = make_qdrant_client()
+            contexts, sources, detailed_chunks = retrieve_context_hybrid(
+                qdrant_client=qdrant_client,
+                collection_name=collection_cible,
+                query=query_outil,
+                ollama_client=ollama_client,
+                model=requete.modele,
+                n_results=requete.n_results or 5,
+                seuil=requete.seuil or 0.5,
+                alpha=requete.alpha or 0.5,
+            )
 
-            # Get the user's actual query (last user message)
-            user_query = ""
-            for msg in reversed(requete.messages):
-                if msg["role"] == "user":
-                    user_query = msg["content"]
-                    break
-
-            if user_query:
-                # Retrieve context from Qdrant
-                from engines.rag_engine import make_ollama_client
-                ollama_client = make_ollama_client()
-
-                contexts, sources, detailed_chunks = retrieve_context_hybrid(
-                    qdrant_client=qdrant_client,
-                    collection_name=requete.collection_name,
-                    query=user_query,
-                    ollama_client=ollama_client,
-                    model=requete.modele,
-                    n_results=requete.n_results or 5,
-                    seuil=requete.seuil or 0.5,
-                    alpha=requete.alpha or 0.5,
-                    use_hyde=requete.use_hyde if requete.use_hyde is not None else False,
-                    use_expansion=requete.use_expansion if requete.use_expansion is not None else False,
-                    doc_date_filter=requete.doc_date_filter or "",
-                )
-
-                # Build context string for system prompt
-                context_str = "\n\n".join(contexts) if contexts else "Aucun contexte pertinent trouvé."
-
-                # Build RAG-enhanced system prompt
-                rag_system_prompt = build_system_prompt(context_str)
-
-                messages_pour_ollama = [{"role": "system", "content": rag_system_prompt}] + requete.messages
-            else:
-                # Fallback to regular chat if no user query found
-                messages_pour_ollama = [{"role": "system", "content": SYSTEM_PROMPT}] + requete.messages
+            context_str = "\n\n".join(contexts) if contexts else "Aucun contexte pertinent trouvé."
+            rag_system_prompt = build_system_prompt(context_str)
+            
+            messages_pour_ollama = [{"role": "system", "content": rag_system_prompt}] + requete.messages
         else:
-            # Regular chat without RAG
+            # Le modèle a estimé ne pas avoir besoin de chercher dans Qdrant
             messages_pour_ollama = [{"role": "system", "content": SYSTEM_PROMPT}] + requete.messages
 
+        # --- ÉTAPE 2 : Génération de la réponse finale en streaming ---
         def stream_generator():
             for chunk in inferring_ollama(
                 messages=messages_pour_ollama, model=requete.modele,
@@ -126,6 +150,7 @@ async def generer_chat(requete: ChatRequest):
             yield f"\nSTATS_JSON:{json.dumps(stats_dict)}"
 
         return StreamingResponse(stream_generator(), media_type="text/plain")
+
     except Exception as e:
         print(f"Erreur /chat : {str(e)}")
         # Fallback to regular chat if RAG fails
