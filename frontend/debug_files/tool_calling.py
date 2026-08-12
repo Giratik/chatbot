@@ -4,7 +4,7 @@ import json
 
 
 # Assurez-vous d'importer votre fonction client
-from plugins.APIclient import get_registry_evolve, get_registry
+from plugins.APIclient import get_registry_evolve
 
 def obtenir_description_collections_dynamique() -> str:
     """
@@ -12,22 +12,8 @@ def obtenir_description_collections_dynamique() -> str:
     depuis la collection '_registry' de Qdrant via l'API backend.
     """
     try:
-        import streamlit as st
-
-        # Get backend URL from session state or use default
-        backend_url = st.session_state.get("backend_url", "http://10.75.12.5:8000")
-
-        # Appel à l'API backend pour récupérer le registre
-        #response = get_registry()
-        #response = requests.get(f"{backend_url}/rag/registry")
-        #response.raise_for_status()
-        #data = response.json()
-        #registry_entries = data.get("registry", [])
         response = get_registry_evolve()
-        st.write(response)
         registry_entries = response.get("registry", [])
-        st.write(registry_entries)
-        # Filtrer les entrées valides et extraire nom + description
         collections_dispos = []
         for entry in registry_entries:
             if entry.get("nom") and entry.get("description"):
@@ -51,7 +37,7 @@ def obtenir_description_collections_dynamique() -> str:
         print(f"Erreur lors de la récupération du registre: {str(e)}")
         # Fallback de sécurité générique en cas d'erreur de connexion à Qdrant
         return (
-            "erreur. qdrant est injoinable"
+            "Erreur. qdrant est injoinable"
         )
 
 def build_qdrant_tools():
@@ -85,9 +71,6 @@ def build_qdrant_tools():
     return outils
 
 
-
-
-
 st.set_page_config(page_title="Test Tool Calling", page_icon="🕵️‍♂️", layout="wide")
 
 st.title("🕵️‍♂️ Débogueur de Tool Calling (Connecté au vrai Backend)")
@@ -101,7 +84,7 @@ with st.sidebar:
 
 # Définition de l'outil par défaut
 default_tools = build_qdrant_tools()
-st.write("DEBUG tools:", default_tools)
+#st.write("DEBUG tools:", default_tools)
 
 col1, col2 = st.columns([1, 1])
 
@@ -112,7 +95,7 @@ with col1:
                              height=350)
     
     st.subheader("2. La question de l'utilisateur")
-    user_prompt = st.text_input("Posez une question :", value="Quel est le numéro de téléphone de Jean Dupont ?")
+    user_prompt = st.text_input("Posez une question :", value="Quel est l'adresse mail de Jean Dupont ?")
     
     tester = st.button("🚀 Tester le pipeline complet", use_container_width=True)
 
@@ -173,8 +156,8 @@ with col2:
                                             "query": q,
                                             "model": modele,
                                             "n_results": 3,
-                                            "seuil": 0.5,
-                                            "alpha": 0.5
+                                            "seuil": 0.8,
+                                            "alpha": 0.7
                                         }
                                         search_resp = requests.post(f"{backend_url}/rag/search", json=payload_search)
                                         search_resp.raise_for_status()
