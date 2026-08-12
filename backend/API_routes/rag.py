@@ -1,14 +1,14 @@
-#backend/routers/rag_engine_router.py
+#backend/API_routes/rag.py
 
 import os
-import logging
-logger = logging.getLogger(__name__)
-CHATBOT_ROLE = os.environ.get("CHATBOT_ROLE", "general")
-
 from fastapi import APIRouter, HTTPException, Query, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+CHATBOT_ROLE = os.environ.get("CHATBOT_ROLE", "general")
 
 from engines.rag_engine import (
     make_qdrant_client,
@@ -24,42 +24,8 @@ from engines.rag_engine import (
     ensure_registry,
 )
 
+router = APIRouter(prefix="/rag", tags=["RAG Links"])
 
-router = APIRouter(
-    prefix="/rag",
-    tags=["RAG Engine"],
-    responses={404: {"description": "Not found"}}
-)
-
-
-@router.get("/get_collection_raw",
-    summary="Get raw Qdrant client",
-    description="Returns the raw Qdrant client object for direct access to the vector database",
-    response_description="Raw Qdrant client object",
-    responses={
-        200: {
-            "description": "Successfully returned Qdrant client",
-            "content": {
-                "application/json": {
-                    "example": {"client": "QdrantClient object"}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error connecting to Qdrant"}
-                }
-            }
-        }
-    })
-def get_collection():
-    client = make_qdrant_client()
-    try:
-        return client
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/collections",
     summary="List available collections",
@@ -89,6 +55,7 @@ def get_collections_endpoint():
         return {"collections": list_collections(client)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.get("/collections/{collection_name}/dates",
@@ -133,7 +100,7 @@ def get_collection_dates_endpoint(
 
 
 @router.get("/models",
-    summary="List available generative models",
+    summary="List available generative models from local ollama",
     description="Returns a list of all available generative models from the LLM service",
     response_description="List of available models",
     responses={
@@ -161,54 +128,20 @@ def get_models_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/registry",
-    summary="Get registry entries",
-    description="Returns all registry entries from the vector database",
-    response_description="List of registry entries",
-    responses={
-        200: {
-            "description": "Successfully returned registry entries",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "registry": [
-                            {"name": "tool1", "description": "Tool description"},
-                            {"name": "tool2", "description": "Another tool"}
-                        ]
-                    }
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error retrieving registry"}
-                }
-            }
-        }
-    })
-def get_registry_endpoint():
-    client = make_qdrant_client()
-    try:
-        registry_entries = list_registry(client)
-        return {"registry": registry_entries}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/registry_evolve",
-    summary="Get evolved registry entries",
-    description="Returns registry entries filtered for the current chatbot role",
+    summary="Special route to expose to the app which collection from qdrant it can access",
+    description="Return entries from _registry collection which are all the collections this app has access to based on its role.",
     response_description="List of filtered registry entries",
     responses={
         200: {
-            "description": "Successfully returned evolved registry entries",
+            "description": "Successfully returned entries from _registry",
             "content": {
                 "application/json": {
                     "example": {
                         "registry": [
-                            {"name": "tool1", "description": "Tool for current role"},
-                            {"name": "tool2", "description": "Another tool for role"}
+                            {"name": "collection_1", "description": "In this collection you'll find ..."},
+                            {"name": "collection_2", "description": "In this collection you'll find ..."}
                         ]
                     }
                 }
@@ -218,7 +151,7 @@ def get_registry_endpoint():
             "description": "Internal server error",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Error retrieving evolved registry"}
+                    "example": {"detail": "Error retrieving collections"}
                 }
             }
         }
@@ -258,6 +191,7 @@ class SearchRequest(BaseModel):
                 "doc_date_filter": "2023-01-01"
             }
         }
+
 
 
 @router.post("/search",
@@ -318,6 +252,7 @@ def search_endpoint(req: SearchRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class RewriteRequest(BaseModel):
@@ -455,7 +390,7 @@ def stream_answer_endpoint(req: StreamAnswerRequest):
 import random
 
 @router.get("/collections/{collection_name}/random",
-    summary="Get random chunk from collection",
+    summary="Get random chunk from collection (just used in debugging)",
     description="Returns a random document chunk from the specified collection",
     response_description="Random chunk data or null if collection is empty",
     responses={

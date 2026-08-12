@@ -15,7 +15,7 @@ def main():
         st.session_state.rag_config = set_rag_stats()
 
     # Déclaration des pages
-    page_chat = st.Page("pages/chatbot.py", title="Chatbot EDP-IA", icon="💬", default=True)
+    page_chat = st.Page("pages/chatbot.py", title="Chatbot", icon="💬", default=True)
     page_changelog = st.Page("pages/Changelog.py", title="Changelog", icon="📝")
     page_debug = st.Page("debug_files/Rag_parameters_render.py", title="Configuration", icon="⚙️")
     page_tool_calling = st.Page("debug_files/tool_calling.py", title="tool_calling")
