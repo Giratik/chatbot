@@ -4,7 +4,7 @@ import json
 
 
 # Assurez-vous d'importer votre fonction client
-from plugins.APIclient import get_registry_evolve
+from plugins.wrapper_API import get_registry_evolve
 
 def obtenir_description_collections_dynamique() -> str:
     """

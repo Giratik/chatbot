@@ -26,12 +26,12 @@ class SimpleOllamaClient:
     def __init__(self, host: str = None):
         self.host = host
 
-    def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False):
+    def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False, tools: list | None = None):
         temperature = 0.0
         if options and isinstance(options, dict):
             temperature = options.get("temperature", 0.0)
         dummy_stats = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}
-        
+
         if stream:
             return inferring_ollama(
                 messages=messages,

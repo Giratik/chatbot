@@ -10,14 +10,13 @@ Description : Point d'entrée principal de l'API. Initialise l'application FastA
 from fastapi import FastAPI
 
 # Importation des routeurs modulaires
-from routers import chat, data_analyst, files
-from API_routes import rag
+from API_routes import rag, chat, excel_tool, files
 
 app = FastAPI(title="API Chatbot")
 
 
 # Inclusion des routeurs avec préfixes optionnels
 app.include_router(chat.router)
-app.include_router(data_analyst.router)
+app.include_router(excel_tool.router)
 app.include_router(files.router)
 app.include_router(rag.router)

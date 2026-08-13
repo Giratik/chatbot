@@ -12,7 +12,7 @@ import asyncio
 from fastapi import APIRouter, UploadFile, File, Form
 from utils.file_type_action import analyser_contenu_fichier
 
-router = APIRouter(tags=["Files"])
+router = APIRouter(prefix = "/files", tags=["Files"])
 verrou_vlm_image = asyncio.Semaphore(1)
 
 @router.post("/upload_fichier")

@@ -178,7 +178,7 @@ class SearchRequest(BaseModel):
     doc_date_filter: str = Query("", description="Optional date filter for documents")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "collection_name": "my_collection",
                 "query": "What is the capital of France?",
@@ -264,7 +264,7 @@ class RewriteRequest(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "query": "What is the capital of France?",
                 "model": "llama2",
@@ -317,7 +317,7 @@ class StreamAnswerRequest(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "system_prompt": "You are a helpful assistant.",
                 "query": "What is the capital of France?",

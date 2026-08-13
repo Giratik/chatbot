@@ -23,7 +23,7 @@ from core.mots_cle import (
     NAME_TOOL
 )
 
-router = APIRouter(tags=["Data Analyst"])
+router = APIRouter(prefix="/excel_tool", tags=["Data Analyst"])
 
 
 class ChatRequest_csv(BaseModel):
@@ -289,14 +289,21 @@ async def delete_session(session_id: str):
     return {"status": "success", "message": f"Session '{session_id}' supprimée."}
 
 
-@router.get("/sessions/count")
+
+###################################################################################################
+#
+# A paritr d'ici, les endpoints ne sont pas utilisés dans l'application.
+#
+###################################################################################################
+
+@router.get("/sessions/count") # pas utilisé ?
 async def sessions_count():
     """Nombre de sessions DuckDB actives (monitoring)."""
     return {"active_sessions": ddb.registry.active_count()}
 
 # --- NOUVELLES ROUTES POUR LES UTILITAIRES EXCEL ---
 
-@router.post("/extract_sql_metadata")
+@router.post("/extract_sql_metadata") # pas utilisé ?
 async def extract_sql_metadata(request: SqlExtractionRequest):
     """
     Extrait le SQL et les métadonnées de graphique d'une réponse LLM.
@@ -317,7 +324,7 @@ async def extract_sql_metadata(request: SqlExtractionRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@router.post("/build_chart")
+@router.post("/build_chart") # pas utilisé ?
 async def build_chart(request: ChartBuildingRequest):
     """
     Construit une spécification de graphique à partir de données et de métadonnées.
@@ -349,7 +356,7 @@ async def build_chart(request: ChartBuildingRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@router.post("/build_chart_from_llm")
+@router.post("/build_chart_from_llm") # pas utilisé ?
 async def build_chart_from_llm(request: ExcelAnalysisRequest):
     """
     Construit une spécification de graphique à partir d'une réponse LLM complète.
@@ -388,7 +395,7 @@ async def build_chart_from_llm(request: ExcelAnalysisRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@router.post("/execute_sql_excel")
+@router.post("/execute_sql_excel") # pas utilisé ?
 async def execute_sql_excel(request: SqlExecutionRequest):
     """
     Exécute une requête SQL et retourne les résultats pour construction de graphique.
@@ -413,7 +420,7 @@ async def execute_sql_excel(request: SqlExecutionRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@router.post("/analyze_excel_response")
+@router.post("/analyze_excel_response") # pas utilisé ?
 async def analyze_excel_response(request: ExcelAnalysisRequest):
     """
     Analyse une réponse LLM complète pour extraire tous les composants Excel.

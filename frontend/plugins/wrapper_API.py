@@ -1,5 +1,5 @@
 """
-plugins/APIclient.py
+plugins/wrapper_API.py
 ────────────────
 Wrapper HTTP vers l'API FastAPI RAG.
 Chaque fonction reproduit la signature attendue par les modules ui/
@@ -15,7 +15,6 @@ from typing import Generator, List, Dict, Any, Optional
 # ── URL de base (peut être surchargée via st.secrets ou variable d'env) ───────
 import os
 BASE_URL = os.getenv("API_URL", os.getenv("RAG_API_URL", "http://backend:8000"))
-#BASE_URL = os.environ.get("API_URL", "http://10.75.12.5:8000")
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
  
@@ -50,19 +49,12 @@ def list_doc_dates(collection_name: str) -> List[str]:
 def get_registry():
     try:
         return _get("/rag/registry")
-        #resp = requests.get(f"http://10.75.12.5:8000/rag/registry")
-        #resp.raise_for_status()
-        #return resp.json()
     except Exception:
         return []
 
 def get_registry_evolve():
     try:
         registry_entries = _get("/rag/registry_evolve")
-        #resp = requests.get(f"http://10.75.12.5:8000/rag/registry_evolve")
-        #resp.raise_for_status()
-        #registry_entries = resp.json()
-        #return resp
         return registry_entries # => bonne réponse
     except Exception as e:
         print(f"Erreur registry : {e}")
@@ -142,58 +134,58 @@ def stream_answer(
  
 # ─── Prompt système avec instructions de citation ─────────────────────────────
  
-def build_system_prompt(context_str: str, chunks: List[Dict[str, Any]]) -> str:
-    """Construit le prompt système.
- 
-    Les chunks sont triés par date décroissante (le plus récent en premier)
-    afin que le LLM privilégie naturellement les informations les plus à jour.
-    """
-    # Trier par doc_date décroissant — les plus récents en tête de contexte
-    sorted_chunks = sorted(
-        chunks,
-        key=lambda c: c.get("doc_date", "") or "",
-        reverse=True,
-    )
- 
-    labeled_blocks = []
-    for chunk in sorted_chunks:
-        source = chunk.get("source", "source inconnue")
-        doc_date = chunk.get("doc_date", "")
-        doc = chunk.get("document", "")
-        date_label = f" | date: {doc_date}" if doc_date else ""
-        labeled_blocks.append(f"[SOURCE: {source}{date_label}]\n{doc}")
- 
-    labeled_context = "\n\n---\n\n".join(labeled_blocks) if labeled_blocks else context_str
- 
-    return (
-        "Tu es un assistant expert RH. Réponds uniquement en te basant sur le contexte suivant.\n\n"
-        "RÈGLES IMPORTANTES :\n"
-        "1. Donne UNIQUEMENT la valeur ou règle actuellement en vigueur (la plus récente). "
-        "Ne mentionne PAS les valeurs historiques ou remplacées, sauf si l'utilisateur le demande explicitement.\n"
-        "2. En cas de contradiction entre deux sources, la source avec la date la plus récente fait foi.\n"
-        "3. Chaque fois que tu utilises une information, cite sa source avec ce format exact : "
-        "[source: nom_du_fichier (Page X)]\n"
-        "4. Place la citation juste après la phrase qui utilise l'information.\n"
-        "5. Si la réponse n'est pas dans le contexte, dis-le clairement sans inventer.\n\n"
-        f"Contexte disponible (trié du plus récent au plus ancien) :\n\n{labeled_context}"
-    )
- 
+#def build_system_prompt(context_str: str, chunks: List[Dict[str, Any]]) -> str:
+#    """Construit le prompt système.
+# 
+#    Les chunks sont triés par date décroissante (le plus récent en premier)
+#    afin que le LLM privilégie naturellement les informations les plus à jour.
+#    """
+#    # Trier par doc_date décroissant — les plus récents en tête de contexte
+#    sorted_chunks = sorted(
+#        chunks,
+#        key=lambda c: c.get("doc_date", "") or "",
+#        reverse=True,
+#    )
+# 
+#    labeled_blocks = []
+#    for chunk in sorted_chunks:
+#        source = chunk.get("source", "source inconnue")
+#        doc_date = chunk.get("doc_date", "")
+#        doc = chunk.get("document", "")
+#        date_label = f" | date: {doc_date}" if doc_date else ""
+#        labeled_blocks.append(f"[SOURCE: {source}{date_label}]\n{doc}")
+# 
+#    labeled_context = "\n\n---\n\n".join(labeled_blocks) if labeled_blocks else context_str
+# 
+#    return (
+#        "Tu es un assistant expert RH. Réponds uniquement en te basant sur le contexte suivant.\n\n"
+#        "RÈGLES IMPORTANTES :\n"
+#        "1. Donne UNIQUEMENT la valeur ou règle actuellement en vigueur (la plus récente). "
+#        "Ne mentionne PAS les valeurs historiques ou remplacées, sauf si l'utilisateur le demande explicitement.\n"
+#        "2. En cas de contradiction entre deux sources, la source avec la date la plus récente fait foi.\n"
+#        "3. Chaque fois que tu utilises une information, cite sa source avec ce format exact : "
+#        "[source: nom_du_fichier (Page X)]\n"
+#        "4. Place la citation juste après la phrase qui utilise l'information.\n"
+#        "5. Si la réponse n'est pas dans le contexte, dis-le clairement sans inventer.\n\n"
+#        f"Contexte disponible (trié du plus récent au plus ancien) :\n\n{labeled_context}"
+#    )
+# 
  
  
 # ─── Parsing des citations dans la réponse ────────────────────────────────────
  
-def extract_citations(response: str) -> tuple[str, List[str]]:
-    """Extrait les [source: ...] de la réponse et retourne (texte_propre, sources_uniques)."""
-    pattern = r'\[source:\s*([^\]]+)\]'
-    citations = re.findall(pattern, response, flags=re.IGNORECASE)
-    # Dédoublonner en conservant l'ordre
-    seen = set()
-    unique_citations = []
-    for c in citations:
-        c_clean = c.strip()
-        if c_clean not in seen:
-            seen.add(c_clean)
-            unique_citations.append(c_clean)
-    # Texte sans les balises de citation
-    clean_text = re.sub(pattern, '', response, flags=re.IGNORECASE).strip()
-    return clean_text, unique_citations
+#def extract_citations(response: str) -> tuple[str, List[str]]:
+#    """Extrait les [source: ...] de la réponse et retourne (texte_propre, sources_uniques)."""
+#    pattern = r'\[source:\s*([^\]]+)\]'
+#    citations = re.findall(pattern, response, flags=re.IGNORECASE)
+#    # Dédoublonner en conservant l'ordre
+#    seen = set()
+#    unique_citations = []
+#    for c in citations:
+#        c_clean = c.strip()
+#        if c_clean not in seen:
+#            seen.add(c_clean)
+#            unique_citations.append(c_clean)
+#    # Texte sans les balises de citation
+#    clean_text = re.sub(pattern, '', response, flags=re.IGNORECASE).strip()
+#    return clean_text, unique_citations

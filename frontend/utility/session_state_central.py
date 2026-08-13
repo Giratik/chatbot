@@ -131,7 +131,7 @@ def reset_and_rerun() -> None:
     session_id = st.session_state.get(SK.SESSION_ID)
     if session_id:
         try:
-            requests.delete(f"{API_URL}/session/{session_id}", timeout=3)
+            requests.delete(f"{API_URL}/excel_tool/session/{session_id}", timeout=3)
         except Exception:
             pass
 

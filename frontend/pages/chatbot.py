@@ -1,5 +1,5 @@
 import streamlit as st
-from general_purpose_chat.general_purpose_chat_ui import render_general_purpose_chat
+from chatbot_page_utility.chatbot_interface import render_general_purpose_chat
 from plugins.Sidebar import render_save_chat
 
 from mots_cle import ACRONYME

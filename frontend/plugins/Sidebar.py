@@ -1,8 +1,11 @@
+
 # frontend/plugins/Sidebar.py - Composant de Sidebar et Sauvegarde
 
 import json
 import streamlit as st
-from plugins import APIclient as api
+from plugins import wrapper_API as api
+
+from utility.session_state_central import SK, get, set as ss_set
 
 def render_sidebar() -> dict:
     """
@@ -80,6 +83,8 @@ def render_sidebar() -> dict:
         "use_reranker": use_reranker,
     }
 
+
+
 def render_save_chat():
     """
     Composant de sauvegarde et restauration des conversations.
@@ -92,15 +97,15 @@ def render_save_chat():
     - Gestion des erreurs de format
     """
     with st.sidebar:
-        
+
         # Sauvegarde et Chargement (JSON)
         # =========================================
         st.markdown("**💾 Sauvegarde & Historique**")
 
         # 1. EXPORT : Bouton pour télécharger la conversation
-        if "messages" in st.session_state and st.session_state.messages:
-            # On convertit la liste de messages en chaîne JSON
-            chat_json = json.dumps(st.session_state.messages, ensure_ascii=False, indent=2)
+        messages = get(SK.MESSAGES)                          # ✅
+        if messages:
+            chat_json = json.dumps(messages, ensure_ascii=False, indent=2)
 
             st.download_button(
                 label="📥 Exporter la conversation",
@@ -116,13 +121,11 @@ def render_save_chat():
         if uploaded_file is not None:
             if st.button("Restaurer cette conversation"):
                 try:
-                    # On lit et on décode le contenu du fichier
                     file_content = uploaded_file.getvalue().decode("utf-8")
                     loaded_messages = json.loads(file_content)
 
-                    # On met à jour l'état de la session
-                    st.session_state.messages = loaded_messages
+                    ss_set(SK.MESSAGES, loaded_messages)     # ✅
                     st.success("Conversation restaurée !")
-                    st.rerun()  # Recharge la page pour afficher les messages
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Erreur lors de la lecture du fichier : {e}")

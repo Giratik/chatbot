@@ -2,7 +2,7 @@
 
 import streamlit as st
 import datetime
-from plugins.APIclient import list_collections
+from plugins.wrapper_API import list_collections
 
 st.set_page_config(page_title="Configuration RAG", page_icon="⚙️", layout="wide")
 

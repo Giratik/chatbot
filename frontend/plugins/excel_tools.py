@@ -1,5 +1,4 @@
 # frontend/plugins/excel_tools.py - Fonctions Excel/SQL/Graphiques
-# (extraites de general_purpose_chat_ui.py pour alléger le fichier principal)
 
 import io
 import os
@@ -10,6 +9,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+
+from utility.session_state_central import SK, get, set as ss_set
 
 API_URL = os.environ.get("API_URL", "http://backend:8000")
 
@@ -97,8 +98,8 @@ def executer_sql_backend(sql: str) -> pd.DataFrame | None:
     """
     try:
         resp = requests.post(
-            f"{API_URL}/execute_sql",
-            json={"sql": sql, "session_id": st.session_state.session_id},
+            f"{API_URL}/excel_tool/execute_sql",
+            json={"sql": sql, "session_id": get(SK.SESSION_ID)},  # ✅
             timeout=30,
         )
         data = resp.json()
@@ -115,48 +116,49 @@ def executer_sql_backend(sql: str) -> pd.DataFrame | None:
 # --- FONCTION DE PARSING EXCEL ---
 def parse_and_load_excel():
     """Envoie le fichier au backend et charge les tables. Appelé après sélection de l'onglet."""
-    file_bytes = io.BytesIO(st.session_state.pending_excel_file)
+    file_bytes = io.BytesIO(get(SK.PENDING_EXCEL_FILE))  # ✅
 
     try:
         resp = requests.post(
-            f"{API_URL}/parse_excel",
-            files={"file": (st.session_state.pending_excel_name, file_bytes)},
+            f"{API_URL}/excel_tool/parse_excel",
+            files={"file": (get(SK.PENDING_EXCEL_NAME), file_bytes)},  # ✅
             params={
-                "sheet_name": st.session_state.selected_sheet,
-                "session_id": st.session_state.session_id,
+                "sheet_name": get(SK.SELECTED_SHEET),    # ✅
+                "session_id": get(SK.SESSION_ID),        # ✅
             },
             timeout=60,
         )
         data = resp.json()
 
         if resp.status_code == 200 and data.get("status") == "success":
-            st.session_state.tables_info = data["tables"]
-            st.session_state.knowledge_ready = True
-            st.session_state.excel_sheet = st.session_state.selected_sheet
+            ss_set(SK.TABLES_INFO, data["tables"])       # ✅
+            ss_set(SK.KNOWLEDGE_READY, True)             # ✅
+            ss_set(SK.EXCEL_SHEET, get(SK.SELECTED_SHEET))  # ✅
 
             for table in data["tables"]:
                 try:
                     r = requests.post(
-                        f"{API_URL}/execute_sql",
+                        f"{API_URL}/excel_tool/execute_sql",
                         json={
                             "sql": f'SELECT * FROM "{table["name"]}"',
-                            "session_id": st.session_state.session_id,
+                            "session_id": get(SK.SESSION_ID),  # ✅
                         },
                         timeout=30,
                     )
                     d = r.json()
                     if d.get("status") == "success":
-                        st.session_state.tables_data[table["name"]] = pd.DataFrame(d["data"])
+                        get(SK.TABLES_DATA)[table["name"]] = pd.DataFrame(d["data"])  # ✅
                 except Exception:
                     pass
+
             # Utiliser la query de l'utilisateur si elle existe, sinon l'instruction
             # par défaut — dans les deux cas, ce sera traité comme dans le flux normal
             # (1 seul appel LLM, pas de message de confirmation séparé qui dupliquerait
             # ce que le LLM va lui-même répondre).
-            if st.session_state.get("pending_user_query"):
-                st.session_state.query_to_execute = st.session_state.pending_user_query
+            if get(SK.PENDING_USER_QUERY):               # ✅
+                ss_set(SK.QUERY_TO_EXECUTE, get(SK.PENDING_USER_QUERY))  # ✅
             else:
-                st.session_state.query_to_execute = "Prends connaissance du fichier joint et attends mes instructions."
+                ss_set(SK.QUERY_TO_EXECUTE, "Prends connaissance du fichier joint et attends mes instructions.")
         else:
             st.error(f"❌ Erreur chargement Excel: {data.get('message', 'Erreur inconnue')}")
 
@@ -164,9 +166,9 @@ def parse_and_load_excel():
         st.error(f"❌ Erreur traitement Excel: {e}")
 
     finally:
-        st.session_state.pending_excel_file = None
-        st.session_state.pending_sheet_names = []
-        st.session_state.stage = 0
-        st.session_state.pending_user_query = None
+        ss_set(SK.PENDING_EXCEL_FILE, None)              # ✅
+        ss_set(SK.PENDING_SHEET_NAMES, [])               # ✅
+        ss_set(SK.STAGE, 0)                              # ✅
+        ss_set(SK.PENDING_USER_QUERY, None)              # ✅
         # NB: query_to_execute est intentionnellement conservé ici —
         # il sera consommé par la boucle principale après le rerun.

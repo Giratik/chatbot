@@ -15,6 +15,9 @@ QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "embeddinggemma:latest")
 
+
+CHATBOT_ROLE = os.environ.get("CHATBOT_ROLE", "general")
+
 from core.mots_cle import (
     COMPANY,
     NAME_TOOL
