@@ -26,7 +26,7 @@ class SimpleOllamaClient:
     def __init__(self, host: str = None):
         self.host = host
 
-    def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False, tools: list | None = None):
+    def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False):
         temperature = 0.0
         if options and isinstance(options, dict):
             temperature = options.get("temperature", 0.0)
