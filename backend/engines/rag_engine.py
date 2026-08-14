@@ -21,47 +21,10 @@ from typing import Any
 def make_qdrant_client() -> QdrantClient:
     return QdrantClient(host=QDRANT_HOST, port=int(QDRANT_PORT))
 
-# The original Ollama client is replaced by the inferring_ollama helper.
-class SimpleOllamaClient:
-    def __init__(self, host: str = None):
-        self.host = host
-
-    def chat(self, *, model: str, messages: list[dict], options: dict | None = None, stream: bool = False):
-        temperature = 0.0
-        if options and isinstance(options, dict):
-            temperature = options.get("temperature", 0.0)
-        dummy_stats = {"prompt_tokens": 0, "completion_tokens": 0, "duration": 0}
-
-        if stream:
-            return inferring_ollama(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                stream=True,
-                stats_dict=dummy_stats,
-                context_size=CONTEXT_SIZE,
-            )
-        else:
-            full = "".join(
-                chunk for chunk in inferring_ollama(
-                    messages=messages,
-                    model=model,
-                    temperature=temperature,
-                    stream=True,
-                    stats_dict=dummy_stats,
-                    context_size=CONTEXT_SIZE,
-                )
-            )
-            return {"message": {"content": full}}
-
-    def list(self):
-        import ollama as _ollama
-        c = _ollama.Client(host=OLLAMA_HOST)
-        return c.list()
+from services.ollama_client import client as ollama_sdk_client
 
 def make_ollama_client():
-    return SimpleOllamaClient()
-
+    return ollama_sdk_client  # le vrai Client SDK Ollama
 
 def embed(texts: list[str], ollama_host: str, model: str = EMBEDDING_MODEL) -> list[list[float]]:
     """Appel direct à l'API Ollama pour produire les embeddings."""
@@ -153,15 +116,6 @@ def list_doc_dates(qdrant_client: QdrantClient, collection_name: str) -> list[st
     return sorted(list(dates))
 
 
-def list_generative_models(ollama_client: Any) -> list[str]:
-    raw = ollama_client.list()
-    models = raw.models if hasattr(raw, "models") else raw.get("models", [])
-    result = []
-    for m in models:
-        name = m.model if hasattr(m, "model") else m.get("model", m.get("name", ""))
-        if name and "embed" not in name:
-            result.append(name)
-    return result
 
 
 # ─── QUERY AUGMENTATION ───────────────────────────────────────────────────────
@@ -396,35 +350,3 @@ def rewrite_query(
     except Exception:
         return query
  
- 
-def stream_answer(
-    ollama_client,
-    model: str,
-    system_prompt: str,
-    user_question: str,
-    chat_history: list[dict] | None = None,
-):
-    MAX_HISTORY_TURNS = 6
-    messages = [{"role": "system", "content": system_prompt}]
- 
-    if chat_history:
-        trimmed = chat_history[-(MAX_HISTORY_TURNS * 2):]
-        messages.extend(trimmed)
- 
-    messages.append({"role": "user", "content": user_question})
- 
-    for chunk in ollama_client.chat(
-        model=model,
-        messages=messages,
-        stream=True,
-        options={"temperature": 0.0},
-    ):
-        if isinstance(chunk, str):
-            yield chunk
-        elif isinstance(chunk, dict):
-            yield chunk.get("message", {}).get("content", "")
-        else:
-            try:
-                yield chunk.message.content
-            except AttributeError:
-                yield str(chunk)

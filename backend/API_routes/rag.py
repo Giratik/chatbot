@@ -14,10 +14,8 @@ from engines.rag_engine import (
     make_qdrant_client,
     make_ollama_client,
     list_collections,
-    list_generative_models,
     retrieve_context_hybrid,
     rewrite_query,
-    stream_answer,
     list_doc_dates,
     list_registry,
     registry_for_tool_calling,
@@ -95,36 +93,6 @@ def get_collection_dates_endpoint(
     try:
         # ⬅️ Changement ici : on passe directement le client et le nom de la collection
         return list_doc_dates(client, collection_name)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/models",
-    summary="List available generative models from local ollama",
-    description="Returns a list of all available generative models from the LLM service",
-    response_description="List of available models",
-    responses={
-        200: {
-            "description": "Successfully returned list of models",
-            "content": {
-                "application/json": {
-                    "example": {"models": ["llama2", "mistral", "gemma"]}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error listing models"}
-                }
-            }
-        }
-    })
-def get_models_endpoint():
-    client = make_ollama_client()
-    try:
-        return {"models": list_generative_models(client)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -276,36 +244,6 @@ class RewriteRequest(BaseModel):
         }
 
 
-@router.post("/rewrite",
-    summary="Rewrite a query",
-    description="Rewrite the given query using the specified model, optionally using chat history for context",
-    response_description="Rewritten query text",
-    responses={
-        200: {
-            "description": "Successfully rewrote query",
-            "content": {
-                "application/json": {
-                    "example": {"rewritten_query": "What is the capital city of France?"}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error during query rewriting"}
-                }
-            }
-        }
-    })
-def rewrite_endpoint(req: RewriteRequest):
-    ollama_client = make_ollama_client()
-    try:
-        rewritten = rewrite_query(ollama_client, req.model, req.query, req.chat_history)
-        return {"rewritten_query": rewritten}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 class StreamAnswerRequest(BaseModel):
     system_prompt: str = Query(..., description="System prompt for the LLM")
@@ -344,48 +282,6 @@ def _extract_token(chunk) -> str:
         return chunk.message.content
     except AttributeError:
         return str(chunk)
-
-
-@router.post("/stream_answer",
-    summary="Stream answer to a query",
-    description="Stream the answer to a query using the specified model, with optional chat history for context",
-    response_description="Streaming text response",
-    responses={
-        200: {
-            "description": "Successfully streaming answer",
-            "content": {
-                "text/plain": {
-                    "example": "The capital of France is Paris..."
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "text/plain": {
-                    "example": "\nERROR:Error during answer generation"
-                }
-            }
-        }
-    })
-def stream_answer_endpoint(req: StreamAnswerRequest):
-    ollama_client = make_ollama_client()
-
-    def generator():
-        try:
-            for chunk in stream_answer(
-                ollama_client,
-                req.model,
-                req.system_prompt,
-                req.query,
-                req.chat_history,
-            ):
-                yield _extract_token(chunk)
-        except Exception as e:
-            yield f"\nERROR:{str(e)}"
-
-    return StreamingResponse(generator(), media_type="text/plain")
-
 
 import random
 

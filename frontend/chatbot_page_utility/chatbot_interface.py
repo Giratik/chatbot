@@ -37,7 +37,7 @@ PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
 # COUCHE LLM
 # =============================================================================
 
-def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
+def _appeler_llm_et_afficher_old(messages_pour_api, force_new: bool = False):
     """
     Appelle le backend (chat classique ou analyste de données selon le contexte),
     stream la réponse dans un st.chat_message("assistant"), puis gère le
@@ -131,6 +131,96 @@ def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
             _post_traitement_excel(full_response, message_assistant)
 
     return message_assistant
+
+
+
+
+def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
+    """
+    Appelle le backend (chat classique ou analyste de données selon le contexte),
+    stream la réponse dans un st.chat_message("assistant"), puis gère le
+    post-traitement Excel (SQL/graphe/dataframe) le cas échéant.
+
+    Args:
+        messages_pour_api: Historique des messages au format attendu par l'API
+        force_new: Si True, force une réponse différente (régénération).
+
+    Returns:
+        dict: Le message assistant à ajouter à l'historique.
+    """
+    if get(SK.KNOWLEDGE_READY):
+        mode = "graphique"
+        endpoint = f"{API_URL}/excel_tool/chat_data_analyst"
+        temperature = 0.4
+    else:
+        mode = "discussion"
+        endpoint = f"{API_URL}/chat_with_tools"
+        temperature = TEMPERATURE
+
+    if force_new:
+        temperature = min(temperature + 0.15, 1.0)
+
+    with st.chat_message("assistant"):
+        start_time = time.time()
+
+        payload = {
+    "messages": messages_pour_api,
+    "modele": DEFAULT_LLM,
+    "temperature": temperature,
+    "context_size": CONTEXT_SIZE,
+    "session_id": get(SK.SESSION_ID),
+    "think": get(SK.THINK_MODE),
+    "tables_info": get(SK.TABLES_INFO),
+    "request_id": str(uuid.uuid4()),
+    "seed": random.randint(1, 2_147_483_647),
+    # ✅ Paramètres de tuning Qdrant — collection choisie par le LLM
+    "n_results": get(SK.RAG_CONFIG).get("n_results", 5),
+    "seuil":     get(SK.RAG_CONFIG).get("seuil", 0.5),
+    "alpha":     get(SK.RAG_CONFIG).get("alpha", 0.5),
+}
+
+        with st.sidebar:
+            if PAYLOAD_DEBUG == "show":
+                st.subheader("🔍 Debug — Payload")
+                st.json(payload)
+                st.caption(f"Mode: {mode} | Contexte: {CONTEXT_SIZE}")
+
+        mes_stats = {}
+
+        def lire_flux_api():
+            try:
+                with requests.post(endpoint, json=payload, stream=True, timeout=120) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=1024):
+                        if chunk:
+                            texte = chunk.decode("utf-8")
+                            if "STATS_JSON:" in texte:
+                                parties = texte.split("STATS_JSON:")
+                                if parties[0]:
+                                    yield parties[0]
+                                stats_recues = json.loads(parties[1])
+                                mes_stats.update(stats_recues)
+                            else:
+                                yield texte
+            except Exception as e:
+                yield f"❌ Erreur de connexion : {str(e)}"
+
+        with st.spinner("💬 Génération de la réponse en cours..."):
+            full_response = st.write_stream(lire_flux_api())
+        st.caption(f"⏱️ {time.time() - start_time:.2f}s")
+
+        message_assistant = {
+            "role": "assistant",
+            "display_content": full_response,
+            "content": full_response,
+        }
+
+        # Post-traitement SQL/graphe uniquement en mode Excel
+        if get(SK.KNOWLEDGE_READY):
+            _post_traitement_excel(full_response, message_assistant)
+
+    return message_assistant
+
 
 
 def _post_traitement_excel(full_response: str, message_assistant: dict):

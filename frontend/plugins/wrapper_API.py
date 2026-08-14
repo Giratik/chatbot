@@ -36,10 +36,6 @@ def list_collections() -> List[str]:
     return _get("/rag/collections")["collections"]
  
  
-def list_generative_models() -> List[str]:
-    return _get("/rag/models")["models"]
- 
- 
 def list_doc_dates(collection_name: str) -> List[str]:
     try:
         return _get(f"/rag/collections/{collection_name}/dates")
@@ -63,22 +59,7 @@ def get_registry_evolve():
 def get_collection_raw():
     return _get("/rag/get_collection_raw")
  
- 
-# ─── Réécriture de requête ────────────────────────────────────────────────────
- 
-def rewrite_query(
-    query: str,
-    model: str,
-    chat_history: List[Dict[str, str]],
-) -> str:
-    data = _post("/rag/rewrite", {
-        "query": query,
-        "model": model,
-        "chat_history": chat_history,
-    })
-    return data["rewritten_query"]
- 
- 
+  
 # ─── Recherche hybride ────────────────────────────────────────────────────────
  
 def retrieve_context_hybrid(
@@ -106,30 +87,7 @@ def retrieve_context_hybrid(
     return data["contexts"], data["sources"], data["detailed_chunks"]
  
  
-# ─── Streaming de la réponse ──────────────────────────────────────────────────
- 
-def stream_answer(
-    system_prompt: str,
-    query: str,
-    model: str,
-    chat_history: Optional[List[Dict[str, str]]] = None,
-) -> Generator[str, None, None]:
-    payload = {
-        "system_prompt": system_prompt,
-        "query": query,
-        "model": model,
-        "chat_history": chat_history or [],
-    }
-    with requests.post(
-        f"{BASE_URL}/rag/stream_answer",
-        json=payload,
-        stream=True,
-        timeout=120,
-    ) as resp:
-        resp.raise_for_status()
-        for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-            if chunk:
-                yield chunk
+
  
  
 # ─── Prompt système avec instructions de citation ─────────────────────────────
