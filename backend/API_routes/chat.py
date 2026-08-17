@@ -6,6 +6,8 @@ Description : Définit les points d'entrée de l'API pour l'envoi des messages u
                 la gestion de l'historique et la génération de réponses classiques ou RAG.
 """
 
+import asyncio
+
 import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -14,7 +16,7 @@ from services.ollama_client import inferring_ollama, client as ollama_sdk_client
 
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-from engines.rag_engine import make_qdrant_client, retrieve_context_hybrid, build_system_prompt
+from external_tools.rag_engine import make_qdrant_client, retrieve_context_hybrid, build_system_prompt
 from API_routes.rag import registry_for_tool_calling
 
 import os
@@ -41,6 +43,7 @@ class ChatRequest(BaseModel):
 class ChatWithToolsRequest(BaseModel):
     messages: List[Dict[str, Any]]
     modele: str
+    tool_llm: str
     temperature: float
     context_size: int
     think: bool = False
@@ -169,15 +172,13 @@ async def generer_chat_with_tools(requete: ChatWithToolsRequest):
         qdrant_tools = build_qdrant_tools(qdrant_client)
 
         # --- ÉTAPE 1 : Évaluation tool calling (SDK direct, non-streamé) ---
-        response_eval = ollama_sdk_client.chat(
-            model=requete.modele,
-            messages=requete.messages,
-            tools=qdrant_tools,
-            options={
-                "num_ctx": requete.context_size,
-                "temperature": 0.0,  # déterministe pour le choix d'outil
-            },
-        )
+        response_eval = await asyncio.to_thread(
+    ollama_sdk_client.chat,
+    model=requete.tool_llm,
+    messages=requete.messages,
+    tools=qdrant_tools,
+    options={"num_ctx": 2048, "temperature": 0.0},
+)
 
         if response_eval.message.tool_calls:
             tool_call = response_eval.message.tool_calls[0]
@@ -186,7 +187,7 @@ async def generer_chat_with_tools(requete: ChatWithToolsRequest):
             query_outil = args.get("query")
 
             # --- ÉTAPE 2 : Recherche Qdrant ciblée ---
-            from engines.rag_engine import make_ollama_client
+            from external_tools.rag_engine import make_ollama_client
             contexts, sources, detailed_chunks = retrieve_context_hybrid(
                 qdrant_client=qdrant_client,
                 collection_name=collection_cible,

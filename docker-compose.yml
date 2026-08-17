@@ -52,6 +52,7 @@ services:
       - TEMPERATURE=0.4
       - DEFAULT_LLM=gemma4:e4b
       - DEFAULT_VLM=gemma4:e4b
+      - TOOL_LLM=qwen3.5:4b
       - PAYLOAD_DEBUG=hide
       - IS_DEV=yes
     depends_on:

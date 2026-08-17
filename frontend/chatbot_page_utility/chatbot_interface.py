@@ -27,6 +27,7 @@ from plugins.excel_tools import (
 API_URL = os.environ.get("API_URL", "http://backend:8000")
 DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "gemma4:e4b")
 DEFAULT_VLM = os.environ.get("DEFAULT_VLM", "gemma4:e4b")
+TOOL_LLM = os.environ.get("TOOL_LLM", "qwen3.5:0.8b")
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", 0.3))
 PAYLOAD_DEBUG = os.environ.get("PAYLOAD_DEBUG", "hide")
@@ -166,6 +167,7 @@ def _appeler_llm_et_afficher(messages_pour_api, force_new: bool = False):
         payload = {
     "messages": messages_pour_api,
     "modele": DEFAULT_LLM,
+    'tool_llm': TOOL_LLM,
     "temperature": temperature,
     "context_size": CONTEXT_SIZE,
     "session_id": get(SK.SESSION_ID),

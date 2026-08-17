@@ -10,10 +10,10 @@ import logging
 logger = logging.getLogger(__name__)
 CHATBOT_ROLE = os.environ.get("CHATBOT_ROLE", "general")
 
-from engines.rag_engine import (
+from external_tools.rag_engine import (
     make_qdrant_client,
     make_ollama_client,
-    list_collections,
+    #list_collections,
     retrieve_context_hybrid,
     rewrite_query,
     list_doc_dates,
@@ -25,76 +25,76 @@ from engines.rag_engine import (
 router = APIRouter(prefix="/rag", tags=["RAG Links"])
 
 
-@router.get("/collections",
-    summary="List available collections",
-    description="Returns a list of all available collections in the vector database",
-    response_description="List of collection names",
-    responses={
-        200: {
-            "description": "Successfully returned list of collections",
-            "content": {
-                "application/json": {
-                    "example": {"collections": ["collection1", "collection2"]}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error listing collections"}
-                }
-            }
-        }
-    })
-def get_collections_endpoint():
-    client = make_qdrant_client()
-    try:
-        return {"collections": list_collections(client)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#@router.get("/collections",
+#    summary="List available collections",
+#    description="Returns a list of all available collections in the vector database",
+#    response_description="List of collection names",
+#    responses={
+#        200: {
+#            "description": "Successfully returned list of collections",
+#            "content": {
+#                "application/json": {
+#                    "example": {"collections": ["collection1", "collection2"]}
+#                }
+#            }
+#        },
+#        500: {
+#            "description": "Internal server error",
+#            "content": {
+#                "application/json": {
+#                    "example": {"detail": "Error listing collections"}
+#                }
+#            }
+#        }
+#    })
+#def get_collections_endpoint():
+#    client = make_qdrant_client()
+#    try:
+#        return {"collections": list_collections(client)}
+#    except Exception as e:
+#        raise HTTPException(status_code=500, detail=str(e))
 
 
 
-@router.get("/collections/{collection_name}/dates",
-    summary="Get document dates for a collection",
-    description="Returns the available document dates for a specific collection",
-    response_description="List of document dates",
-    responses={
-        200: {
-            "description": "Successfully returned document dates",
-            "content": {
-                "application/json": {
-                    "example": {"dates": ["2023-01-01", "2023-01-02"]}
-                }
-            }
-        },
-        404: {
-            "description": "Collection not found",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Collection not found"}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error retrieving dates"}
-                }
-            }
-        }
-    })
-def get_collection_dates_endpoint(
-    collection_name: str = Path(..., description="Name of the collection to get dates for")
-):
-    client = make_qdrant_client()
-    try:
-        # ⬅️ Changement ici : on passe directement le client et le nom de la collection
-        return list_doc_dates(client, collection_name)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#@router.get("/collections/{collection_name}/dates",
+#    summary="Get document dates for a collection",
+#    description="Returns the available document dates for a specific collection",
+#    response_description="List of document dates",
+#    responses={
+#        200: {
+#            "description": "Successfully returned document dates",
+#            "content": {
+#                "application/json": {
+#                    "example": {"dates": ["2023-01-01", "2023-01-02"]}
+#                }
+#            }
+#        },
+#        404: {
+#            "description": "Collection not found",
+#            "content": {
+#                "application/json": {
+#                    "example": {"detail": "Collection not found"}
+#                }
+#            }
+#        },
+#        500: {
+#            "description": "Internal server error",
+#            "content": {
+#                "application/json": {
+#                    "example": {"detail": "Error retrieving dates"}
+#                }
+#            }
+#        }
+#    })
+#def get_collection_dates_endpoint(
+#    collection_name: str = Path(..., description="Name of the collection to get dates for")
+#):
+#    client = make_qdrant_client()
+#    try:
+#        # ⬅️ Changement ici : on passe directement le client et le nom de la collection
+#        return list_doc_dates(client, collection_name)
+#    except Exception as e:
+#        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/registry_evolve",
@@ -283,60 +283,61 @@ def _extract_token(chunk) -> str:
     except AttributeError:
         return str(chunk)
 
-import random
-
-@router.get("/collections/{collection_name}/random",
-    summary="Get random chunk from collection (just used in debugging)",
-    description="Returns a random document chunk from the specified collection",
-    response_description="Random chunk data or null if collection is empty",
-    responses={
-        200: {
-            "description": "Successfully returned random chunk",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "chunk": {
-                            "text": "Sample document text",
-                            "metadata": {"source": "document.pdf", "page": 1}
-                        }
-                    }
-                }
-            }
-        },
-        404: {
-            "description": "Collection not found",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Collection not found"}
-                }
-            }
-        },
-        500: {
-            "description": "Internal server error",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Error retrieving random chunk"}
-                }
-            }
-        }
-    })
-def get_random_chunk_endpoint(
-    collection_name: str = Path(..., description="Name of the collection to get random chunk from")
-):
-    client = make_qdrant_client()
-    try:
-        # On récupère un lot de 100 points maximum pour piocher dedans
-        records, _ = client.scroll(
-            collection_name=collection_name,
-            limit=100,
-            with_payload=True,
-            with_vectors=False
-        )
-        if not records:
-            return {"chunk": None}
-
-        # On choisit un record au hasard et on renvoie son payload
-        choice = random.choice(records)
-        return {"chunk": choice.payload}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#import random
+#
+#@router.get("/collections/{collection_name}/random",
+#    summary="Get random chunk from collection (just used in debugging)",
+#    description="Returns a random document chunk from the specified collection",
+#    response_description="Random chunk data or null if collection is empty",
+#    responses={
+#        200: {
+#            "description": "Successfully returned random chunk",
+#            "content": {
+#                "application/json": {
+#                    "example": {
+#                        "chunk": {
+#                            "text": "Sample document text",
+#                            "metadata": {"source": "document.pdf", "page": 1}
+#                        }
+#                    }
+#                }
+#            }
+#        },
+#        404: {
+#            "description": "Collection not found",
+#            "content": {
+#                "application/json": {
+#                    "example": {"detail": "Collection not found"}
+#                }
+#            }
+#        },
+#        500: {
+#            "description": "Internal server error",
+#            "content": {
+#                "application/json": {
+#                    "example": {"detail": "Error retrieving random chunk"}
+#                }
+#            }
+#        }
+#    })
+#def get_random_chunk_endpoint(
+#    collection_name: str = Path(..., description="Name of the collection to get random chunk from")
+#):
+#    client = make_qdrant_client()
+#    try:
+#        # On récupère un lot de 100 points maximum pour piocher dedans
+#        records, _ = client.scroll(
+#            collection_name=collection_name,
+#            limit=100,
+#            with_payload=True,
+#            with_vectors=False
+#        )
+#        if not records:
+#            return {"chunk": None}
+#
+#        # On choisit un record au hasard et on renvoie son payload
+#        choice = random.choice(records)
+#        return {"chunk": choice.payload}
+#    except Exception as e:
+#        raise HTTPException(status_code=500, detail=str(e))
+#

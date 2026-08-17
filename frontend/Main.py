@@ -3,7 +3,6 @@
 
 import streamlit as st
 import os
-from pages.Configuration import set_rag_stats
 
 IS_DEV = os.environ.get("IS_DEV", "no")
 
@@ -11,8 +10,8 @@ def main():
     if "is_dev" not in st.session_state:
         st.session_state.is_dev = IS_DEV
 
-    if "rag_config" not in st.session_state:
-        st.session_state.rag_config = set_rag_stats()
+    #if "rag_config" not in st.session_state:
+    #    st.session_state.rag_config = set_rag_stats()
 
     # Déclaration des pages
     page_chat = st.Page("pages/chatbot.py", title="Chatbot", icon="💬", default=True)

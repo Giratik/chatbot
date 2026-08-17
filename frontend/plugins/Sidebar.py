@@ -1,5 +1,5 @@
 
-# frontend/plugins/Sidebar.py - Composant de Sidebar et Sauvegarde
+# frontend/plugins/Sidebar.py - Sauvegarde
 
 import json
 import streamlit as st

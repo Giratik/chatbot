@@ -40,8 +40,8 @@ def embed(texts: list[str], ollama_host: str, model: str = EMBEDDING_MODEL) -> l
     return vectors
 
 
-def list_collections(qdrant_client: QdrantClient) -> list[str]:
-    return sorted(c.name for c in qdrant_client.get_collections().collections)
+#def list_collections(qdrant_client: QdrantClient) -> list[str]:
+#    return sorted(c.name for c in qdrant_client.get_collections().collections)
 
 # ─── REGISTRY DES COLLECTIONS ────────────────────────────────────────────────
 REGISTRY_COLLECTION = "_registry"
