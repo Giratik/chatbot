@@ -95,7 +95,7 @@ with col1:
                              height=350)
     
     st.subheader("2. La question de l'utilisateur")
-    user_prompt = st.text_input("Posez une question :", value="Quel est l'adresse mail de Jean Dupont ?")
+    user_prompt = st.text_input("Posez une question :", value="Quel est l'adresse mail de Paul VIDOUZE ?")
     
     tester = st.button("🚀 Tester le pipeline complet", use_container_width=True)
 
