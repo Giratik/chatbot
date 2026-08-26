@@ -1,137 +1,237 @@
-# 🤖 Chatbot IA & Assistant d'Analyse de Données
+# Chatbot IA & Assistant de données
 
-Un assistant conversationnel avancé d'entreprise, doté de capacités de génération augmentée par la recherche (RAG), d'analyse de données structurées et de reconnaissance optique de caractères (OCR). Ce projet est conçu avec une architecture moderne séparant le frontend et le backend, et s'appuie sur des modèles de langage locaux via Ollama.
+Ce projet est un assistant conversationnel orienté entreprise, capable de répondre à partir de documents, de traiter des fichiers Excel et d’exécuter des analyses de données à partir d’un modèle LLM local. Il combine une interface web Streamlit, une API FastAPI, une couche de recherche vectorielle (RAG) et des outils d’analyse de fichiers structurés ou non structurés.
 
-## ✨ Fonctionnalités Principales
+Le système est conçu pour fonctionner avec des modèles LLM hébergés localement via Ollama, avec un backend FastAPI dédié et un frontend Streamlit pour l’interaction utilisateur.
 
-* **Interface Utilisateur Intuitive :** Développée avec Streamlit pour une interaction fluide avec le chatbot, l'upload de fichiers et le paramétrage.
-* **Moteur RAG (Retrieval-Augmented Generation) :** Recherche intelligente dans vos documents grâce à une base de données vectorielle intégrée (ChromaDB).
-* **Analyse de Données Avancée :** Analyse de fichiers Excel et exécution de requêtes via DuckDB.
-* **Vision & OCR :** Extraction de texte à partir de documents complexes ou d'images en utilisant PaddleOCR et des modèles de vision LLM.
-* **Confidentialité & Localisation :** Intégration complète avec [Ollama](https://ollama.com/) pour faire tourner les modèles de langage (LLM) localement.
-* **Déploiement Facile :** Entièrement conteneurisé avec Docker et Docker Compose.
+## Aperçu du projet
 
-## 🏗 Architecture du Projet
+Le dépôt contient :
 
-Le projet suit une architecture client-serveur classique, avec des micro-services spécialisés pour la manipulation des données et l'inférence des modèles IA.
+- un backend FastAPI pour la logique IA, le RAG, le chat et les traitements fichiers
+- un frontend Streamlit pour l’interface utilisateur
+- un service Ollama pour l’inférence des modèles
+- un service Qdrant pour le stockage vectoriel
+- une base DuckDB en mémoire par session pour les analyses Excel
+- des capacités OCR / vision et extraction de texte sur documents et images
 
-Voici le diagramme de flux de l'architecture :
+## Fonctionnalités principales
+
+- Chat conversationnel simple avec LLM
+- Chat avec tool calling dynamique pour décider s’il faut interroger une base documentaire
+- Recherche documentaire augmentée par récupération (RAG) sur des collections vectorielles
+- Analyse de fichiers Excel et génération de requêtes SQL DuckDB
+- Visualisation de résultats sous forme de graphiques via le modèle et la logique de synthèse
+- Import de fichiers (texte, PDF, image, tableur, document Office)
+- OCR et extraction de texte à partir d’images / PDF
+- Gestion de sessions utilisateur pour l’analyse de données
+- Interface web construite avec Streamlit
+- Déploiement conteneurisé avec Docker Compose
+
+## Architecture
 
 ```mermaid
 graph TD
-    %% Définition des acteurs et interfaces
-    User((🧑‍💻 Utilisateur))
-    
-    %% Frontend
-    subgraph "Interface Utilisateur (Docker Container)"
-        UI[💻 Frontend : Streamlit<br/> Main.py]
-        API_Client[🔌 API Client<br/> plugins/APIclient.py]
-    end
-
-    %% Backend
-    subgraph "Serveur & Logique Métier (Docker Container)"
-        API[🚀 Backend API : FastAPI<br/> main.py]
-        
-        %% Moteurs et Routeurs
-        Router_Chat[💬 Routeur Chat]
-        Router_RAG[📄 RAG Engine]
-        Router_Data[📊 Data Analyst]
-        Router_Files[📁 File Processor & OCR]
-    end
-
-    %% Bases de données et services externes
-    subgraph "Stockage & Modèles"
-        VDB[(🗄️ ChromaDB<br/>Base Vectorielle)]
-        SQLDB[(💾 DuckDB<br/>Base Analytique)]
-        LLM((🧠 Ollama<br/>Modèles Locaux))
-        OCR[👁️ PaddleOCR<br/>Vision Engine]
-    end
-
-    %% Flux d'interactions
-    User -->|Interagit & Upload Fichiers| UI
-    UI -->|Appelle| API_Client
-    API_Client -->|Requêtes REST HTTP| API
-    
-    API --> Router_Chat
-    API --> Router_RAG
-    API --> Router_Data
-    API --> Router_Files
-
-    %% Connexions Backend -> Data/Models
-    Router_RAG <-->|Embeddings & Recherche| VDB
-    Router_Data <-->|Requêtes SQL| SQLDB
-    Router_Files -->|Extraction Texte| OCR
-    
-    Router_Chat -->|Génération| LLM
-    Router_RAG -->|Synthèse| LLM
-    Router_Data -->|Génération de Code/Analyse| LLM
-    Router_Files -->|Analyse Visuelle| LLM
+   U[Utilisateur] --> F[Frontend Streamlit]
+   F --> B[Backend FastAPI]
+   B --> C[Chat / Tool Calling]
+   B --> R[RAG / Qdrant]
+   B --> D[DuckDB / Excel Analyst]
+   B --> FI[Files / OCR]
+   C --> O[Ollama]
+   R --> Q[Qdrant]
+   FI --> OCR[PaddleOCR / Vision]
+   D --> DB[DuckDB session]
 ```
 
-### Explication des composants :
+## Flux de traitement
 
-* **Frontend (Streamlit) :** Gère l'affichage, les sessions de chat, et l'envoi des documents (`Main.py`). Il communique exclusivement avec le backend via des requêtes HTTP.
-* **Backend (FastAPI) :** Le point d'entrée de toute la logique. Il route les requêtes vers les bons services (Chat, RAG, Analyse de données).
-* **Ollama :** Exécute les LLMs (comme Llama 3, Mistral, etc.) pour garantir la rapidité et la confidentialité des données.
-* **Bases de Données :** * **ChromaDB :** Stocke les embeddings des documents pour le RAG.
-  * **DuckDB :** Permet d'effectuer des analyses SQL rapides sur les données tabulaires (ex: fichiers Excel uploadés).
+```mermaid
+flowchart LR
+   A[Utilisateur envoie une demande] --> B[Frontend Streamlit]
+   B --> C[Backend FastAPI]
+   C --> D{Type de besoin ?}
 
-## 📂 Structure du Dépôt
+   D -->|Chat simple| E[LLM Ollama]
+   D -->|Question documentaire| F[Tool calling + recherche Qdrant]
+   D -->|Analyse Excel| G[DuckDB session + SQL]
+   D -->|Fichier uploadé| H[OCR / extraction de contenu]
+
+   F --> I[Contexte RAG]
+   I --> E
+   G --> J[Synthèse des résultats]
+   H --> K[Retour au frontend]
+   E --> L[Réponse finalisée]
+   J --> K
+   L --> K
+   K --> M[Affichage dans l’interface]
+```
+
+## Stack technique
+
+- Frontend : Streamlit
+- Backend : FastAPI, Pydantic, Uvicorn
+- Modèles LLM : Ollama
+- RAG / vector search : Qdrant + embeddings
+- Analyse data : DuckDB, Polars, pandas, pyarrow
+- OCR / documents : PaddleOCR, Pillow, pdf2image, pdfplumber, python-docx, python-pptx
+- Conteneurisation : Docker, Docker Compose
+
+## Structure du dépôt
 
 ```text
-chatbot-master/
-├── docker-compose.yml       # Configuration globale des conteneurs
-├── backend/                 # Serveur FastAPI
-│   ├── main.py              # Point d'entrée de l'API
-│   ├── routers/             # Points finaux (chat, files, rag, analyst)
-│   ├── engines/             # Logique métier (RAG engine)
-│   ├── services/            # Intégrations tierces (Ollama, OCR, Vision)
-│   ├── core/                # Configuration et DB sessions (DuckDB)
-│   └── utils/               # Outils de parsing (Excel, formattage)
-├── frontend/                # Application Streamlit
-│   ├── Main.py              # Page principale du chat
-│   ├── pages/               # Pages secondaires (Changelog)
-│   ├── plugins/             # Composants UI et client API
-│   └── debug_files/         # Outils de débogage pour les développeurs
-└── _data/                   # Stockage persistant (ChromaDB SQLite & metadata)
+chatbot/
+├── backend/
+│   ├── API_routes/
+│   │   ├── chat.py
+│   │   ├── rag.py
+│   │   ├── excel_tool.py
+│   │   └── files.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── duckdb_session.py
+│   │   └── mots_cle.py
+│   ├── external_tools/
+│   │   └── rag_engine.py
+│   ├── services/
+│   │   ├── ollama_client.py
+│   │   ├── llm_vision.py
+│   │   └── paddle_ocr_processor.py
+│   ├── utils/
+│   ├── main.py
+│   ├── requirements_backend.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── pages/
+│   ├── plugins/
+│   ├── chatbot_page_utility/
+│   ├── debug_files/
+│   ├── Main.py
+│   ├── requirements_frontend.txt
+│   └── Dockerfile
+├── _data/
+├── docker-compose.yml
+├── requirements.txt
+├── .gitignore
+├── readme.md
+└── ...
 ```
 
-## 🚀 Installation & Démarrage
+## Prérequis
 
-### Prérequis
+Avant de lancer le projet, vous devez avoir :
 
-* [Docker](https://docs.docker.com/get-docker/) et Docker Compose installés sur votre machine.
-* [Ollama](https://ollama.com/) installé (en local ou sur un serveur accessible) avec les modèles de votre choix téléchargés (ex: `ollama run llama3`).
+- Docker et Docker Compose installés
+- Ollama installé et accessible depuis le réseau de votre environnement
+- Un service Qdrant accessible ou une configuration Docker réseau dédiée
+- Optionnel : GPU NVIDIA pour accélérer les modèles LLM / OCR
 
-### Étapes de lancement
+## Configuration rapide
 
-1. **Cloner le dépôt :**
+Le projet est principalement piloté par le fichier `docker-compose.yml`.
 
-   ```bash
-   git clone <url-du-depot>
-   cd chatbot-master
-   ```
+Les variables importantes incluent :
 
-2. **Configuration (Optionnel) :**
-   Vérifiez que les variables d'environnement dans votre `docker-compose.yml` (notamment l'URL de votre instance Ollama) sont correctes par rapport à votre infrastructure réseau.
+- `OLLAMA_HOST` : URL du serveur Ollama
+- `CONTEXT_SIZE` : taille du contexte LLM
+- `TEMPERATURE` : température de génération
+- `DEFAULT_LLM` : modèle principal pour le chat
+- `EMBEDDING_MODEL` : modèle utilisé pour les embeddings RAG
+- `QDRANT_HOST` et `QDRANT_PORT` : connexion à Qdrant
+- `CHATBOT_ROLE` : rôle de l’assistant pour le filtrage des collections
+- `API_URL` : adresse du backend côté frontend
+- `IS_DEV` : active les pages de dev dans l’interface Streamlit
 
-3. **Lancer les services avec Docker Compose :**
+## Démarrage avec Docker Compose
 
-   ```bash
-   docker-compose up --build -d
-   ```
+1. Clonez le dépôt 
 
-   *L'argument `-d` lance les conteneurs en arrière-plan.*
+2. Vérifiez la configuration Docker :
 
-4. **Accéder à l'application :**
+- le fichier `docker-compose.yml` pointe sur les services backend et frontend
+- le backend attend un accès Ollama et Qdrant
+- si le réseau Qdrant est externe, vérifiez qu’il existe bien
 
-   * **Frontend (Interface Chat) :** Ouvrez votre navigateur sur `http://localhost:8501`.
-   * **Backend API (Documentation Swagger) :** Consultez l'API sur `http://localhost:8000/docs`.
-
-### Arrêter l'application
-
-Pour arrêter proprement les conteneurs :
+3. Lancez les services :
 
 ```bash
-docker-compose down
+docker compose up --build -d
 ```
+
+4. Vérifiez les services :
+
+- Frontend : http://localhost:8501
+- Backend API : http://localhost:8000/docs
+
+5. Pour arrêter le projet :
+
+```bash
+docker compose down
+```
+
+## Utilisation
+
+### Interface web
+
+La page principale est le chatbot Streamlit. Elle permet :
+
+- d’envoyer des messages au backend
+- de discuter avec le modèle principal
+- d’importer des fichiers pour analyse ou OCR
+- d’accéder aux outils de données Excel
+- de consulter la page de changelog en mode dev
+
+### API backend
+
+Le backend expose plusieurs routes principales :
+
+- `POST /chat` : chat standard sans RAG
+- `POST /chat_with_tools` : chat avec évaluation de l’usage d’outils et recherche documentaire si nécessaire
+- `POST /rag/search` : recherche hybride dans une collection Qdrant
+- `POST /rag/registry_evolve` : liste les collections accessibles selon le rôle du chatbot
+- `POST /excel_tool/parse_excel` : upload d’un fichier Excel et création d’une session DuckDB
+- `POST /excel_tool/chat_data_analyst` : génération SQL et analyse à partir d’un fichier Excel
+- `POST /files/upload_fichier` : traitement d’un fichier uploadé pour extraction de contenu / OCR
+
+## Exemple de flux fonctionnel
+
+1. L’utilisateur ouvre l’interface Streamlit.
+2. Le frontend envoie des messages au backend FastAPI.
+3. Le backend décide :
+   - répondre directement avec le LLM,
+   - ou utiliser une recherche documentaire dans Qdrant,
+   - ou analyser un fichier Excel avec DuckDB.
+4. Les résultats sont renvoyés à l’interface et affichés en conversation.
+
+## Développement local
+
+Pour un développement directement sur le machine hôte, il est possible d’installer séparément les dépendances Python :
+
+```bash
+pip install -r backend/requirements_backend.txt
+pip install -r frontend/requirements_frontend.txt
+```
+
+Ensuite, vous pouvez lancer :
+
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+cd frontend
+streamlit run Main.py
+```
+
+## Points d’attention
+
+- L’environnement dépend fortement d’un serveur Ollama opérationnel.
+- Le RAG dépend d’un service Qdrant et d’indices de documents correctement chargés.
+- Les performances de l’OCR / vision et de la génération peuvent être variables selon la machine et le modèle choisi.
+- La configuration GPU est optionnelle mais recommandé pour les usages lourds.
+
+## Sécurité et confidentialité
+
+Le projet est conçu pour fonctionner en mode local ou interne, avec les modèles sont eux-mêmes hébergés localement via Ollama. Cela permet de limiter l’exposition des données à des services externes. Cependant, les données doivent tout de même être contrôlées selon les règles de votre environnement et le niveau de sensibilité des fichiers traités.
+

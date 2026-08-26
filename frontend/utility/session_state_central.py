@@ -8,6 +8,7 @@ import requests
 import os
 
 API_URL = os.environ.get("API_URL", "http://backend:8000")
+DEFAULT_LLM = os.environ.get("DEFAULT_LLM", "gemma4:e4b")
 
 # ─── Constantes (noms des clés) ───────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ _DEFAULTS: dict[str, Any] = {
     SK.THINK_MODE:          False,
     SK.RAG_CONFIG:          lambda: {   # ✅ factory pour le dict avec valeurs par défaut
         "collection": "aucune_collection",
-        "model": "gemma4:e4b",
+        "model": DEFAULT_LLM,
         "doc_date_filter": "",
         "n_results": 250,
         "seuil": 0.6,

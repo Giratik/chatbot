@@ -12,9 +12,11 @@ from ollama import Client
 import time
 
 CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
-URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+import os
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 client = Client(
-    host=URL_OLLAMA,
+    host=OLLAMA_HOST,
     timeout=httpx.Timeout(
         connect=5.0,
         read=600.0,  # Pour les images volumineuses
@@ -65,7 +67,7 @@ def analyse_image(image_bytes, prompt, model):
         
         # Messages d'aide spécifiques
         if "refused" in error_msg.lower() or "connection" in error_msg.lower():
-            return f"❌ Ollama Vision ne répond pas. Vérifie:\n- Ollama est lancé sur {URL_OLLAMA}\n- Le firewall autorise la connexion\nDétail: {e}"
+            return f"❌ Ollama Vision ne répond pas. Vérifie:\n- Ollama est lancé sur {OLLAMA_HOST}\n- Le firewall autorise la connexion\nDétail: {e}"
         elif "timeout" in error_msg.lower():
             return f"❌ Timeout Ollama (image trop grande?). Essaie une image plus petite.\nDétail: {e}"
         else:

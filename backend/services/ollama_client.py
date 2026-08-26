@@ -14,9 +14,9 @@ from ollama import Client
 
 #from metrics import llm_latency, llm_tokens_generated
 
-URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 client = Client(
-    host=URL_OLLAMA,
+    host=OLLAMA_HOST,
     timeout=httpx.Timeout(
         connect=5.0,    # Connexion au serveur
         read=600.0,     # Attente de la réponse (le plus important)

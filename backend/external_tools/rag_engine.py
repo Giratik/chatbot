@@ -12,10 +12,14 @@ import uuid
 from datetime import datetime, timezone
 
 from services.ollama_client import inferring_ollama
-from core.config import QDRANT_HOST, QDRANT_PORT, OLLAMA_HOST, EMBEDDING_MODEL, CONTEXT_SIZE
 from typing import Any
 
-
+import os
+CONTEXT_SIZE = int(os.environ.get("CONTEXT_SIZE", 22000))
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "embeddinggemma:latest")
 # ─── CLIENTS ──────────────────────────────────────────────────────────────────
 
 def make_qdrant_client() -> QdrantClient:

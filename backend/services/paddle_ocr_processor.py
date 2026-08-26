@@ -24,9 +24,9 @@ from services.ollama_client import inferring_ollama
 from utils.llmlingua_format import token_saver
 
 # Configuration Ollama
-URL_OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 client = Client(
-    host=URL_OLLAMA,
+    host=OLLAMA_HOST,
     timeout=httpx.Timeout(
         connect=5.0,
         read=600.0,
