@@ -1,4 +1,9 @@
 
+## Version en date du 27/08/2026
+### Version 0.2
+Cette version peut interroger la base de données pour répondre à des questions sur Eau de Paris, si ces informations s'y
+
+
 ## Version en date du 17/06/2026
 ### Page chatbot RH déplacée
 La page du chatbot dédiée aux documents RH a été déplacée [ici](http://10.75.12.10:8503)
